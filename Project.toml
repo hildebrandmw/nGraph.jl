@@ -1,0 +1,19 @@
+name = "nGraph"
+uuid = "96f067b3-e350-5ae7-90f2-8283c539009d"
+authors = ["Mark Hildebrand <mhildebrand@ucdavis.edu>"]
+version = "0.1.0"
+
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CxxWrap = "1f15a43c-97ca-5a2a-ae31-89f07a497df4"
+Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
+IRTools = "7869d1d1-7146-5819-86e3-90919afe41df"
+LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
+Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
