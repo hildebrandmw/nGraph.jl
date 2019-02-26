@@ -2,48 +2,73 @@ using nGraph
 using Test
 
 @testset "Simple Example" begin
+    backend = nGraph.Lib.create("CPU")
+
     a = Float32.([1,2,3,4])
     b = Float32.([1,2,3,4])
     c = Float32.([1,2,3,4])
 
-    na = nGraph.param(a)
-    nb = nGraph.param(b)
-    nc = nGraph.param(c)
+    a = nGraph.Tensor(backend, a)
+    b = nGraph.Tensor(backend, b)
+    c = nGraph.Tensor(backend, c)
+    x = nGraph.Tensor{Float32}(undef, backend, 4)
 
-    x = nc * (na + nb)
+    f(x, y, z) = x .* (y .+ z)
 
-    # Construct node and parameter vectors
-    parameters = nGraph.Lib.ParameterVector() 
-    nGraph.Lib.push!(parameters, na)
-    nGraph.Lib.push!(parameters, nb)
-    nGraph.Lib.push!(parameters, nc)
+    ex = nGraph.compile(backend, f, (a,b,c))
 
-    nodes = nGraph.Lib.NodeVector()
-    nGraph.Lib.push!(nodes, x)
+    ex((x,), (a, b, c))
 
-    f = nGraph.Lib.make_function(nodes, parameters)
+    x_expected = f(c, a, b)
+
+    @test isa(x, nGraph.Tensor)
+    @test x == x_expected
+end
+
+##### 
+##### Broadcast Test
+#####
+@testset "Testing Broadcast" begin
+    a = [1,2,3,4]
+    b = 1
+
     backend = nGraph.Lib.create("CPU")
+    A = nGraph.Tensor(backend, a)
+    B = nGraph.Tensor(backend, b)
 
-    executable = nGraph.Lib.compile(backend, f, false)
+    f(x, y) = x .+ y
 
-    # Hack for now
-    element_type = nGraph._element(eltype(a))
-    ta = nGraph.Lib.create_tensor(backend, element_type, UInt[4])
-    tb = nGraph.Lib.create_tensor(backend, element_type, UInt[4])
-    tc = nGraph.Lib.create_tensor(backend, element_type, UInt[4])
-    tx = nGraph.Lib.create_tensor(backend, element_type, UInt[4])
+    ex = nGraph.compile(backend, f, (A, B))
 
-    nGraph.Lib.tensor_write(ta, Ptr{Cvoid}(pointer(a)), zero(UInt64), UInt64(sizeof(a)))
-    nGraph.Lib.tensor_write(tb, Ptr{Cvoid}(pointer(b)), zero(UInt64), UInt64(sizeof(b)))
-    nGraph.Lib.tensor_write(tc, Ptr{Cvoid}(pointer(c)), zero(UInt64), UInt64(sizeof(c)))
+    C = nGraph.Tensor{Int64}(undef, backend, 4)
+    ex((C,), (A,B))
 
-    nGraph.Lib.call(executable, Any[tx], Any[ta, tb, tc])
+    @test C == f(a,b)
+end
 
-    x_expected = c .* (a .+ b)
-    x_ngraph = similar(x_expected)
-    @show x_ngraph
-    nGraph.Lib.tensor_read(tx, Ptr{Cvoid}(pointer(x_ngraph)), zero(UInt64), UInt64(sizeof(x_ngraph)))
-    @show x_ngraph
+#####
+##### Fully connected layer with bias and activation
+#####
+nGraph.relu(x) = x > zero(x) ? x : zero(x)
+@testset "Testing Fully Connected" begin
+    ts = 10
+    w = rand(Float32, ts, ts) 
+    b = rand(Float32, ts)
+    x = rand(Float32, ts, ts)
 
-    @test x_expected == x_ngraph
+    f(x, w, b) = nGraph.relu.(w*x .+ b)
+
+    # Compile a test function
+    backend = nGraph.Lib.create("CPU")
+    W = nGraph.Tensor(backend, w)
+    B = nGraph.Tensor(backend, b)
+    X = nGraph.Tensor(backend, x)
+    ex = nGraph.compile(backend, f, (X, W, B))
+
+    Z = nGraph.Tensor{Float32}(undef, backend, ts, ts)
+    ex((Z,), (X, W, B))
+
+    expected = f(x, w, b)
+    @test isa(Z, nGraph.Tensor)
+    @test isapprox(expected, collect(Z))
 end

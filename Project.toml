@@ -10,6 +10,7 @@ Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
 IRTools = "7869d1d1-7146-5819-86e3-90919afe41df"
 LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
 Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [extras]
