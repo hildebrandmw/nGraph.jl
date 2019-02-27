@@ -102,8 +102,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::Node>("Node")
         .method("get_output_size", &ngraph::Node::get_output_size)
         .method("get_output_element_type", &ngraph::Node::get_output_element_type)
-        .method("get_output_shape", &ngraph::Node::get_output_shape)
-        .method("get_output_tensor", &ngraph::Node::get_output_tensor);
+        .method("get_output_shape", &ngraph::Node::get_output_shape);
+        //.method("get_output_tensor", &ngraph::Node::get_output_tensor);
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
         .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)

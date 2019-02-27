@@ -1,20 +1,26 @@
 # This is kind of a gross way of mapping Julia types to ngraph types.
 # TODO: Think of a better way of doing this.
-_element(::Type{Bool}) = Lib.gettype("boolean")
-_element(::Type{Float32}) = Lib.gettype("f32")
-_element(::Type{Float64}) = Lib.gettype("f64")
-_element(::Type{Int64}) = Lib.gettype("i64")
+const TYPEMAPS = (
+    Bool => "boolean",
+    Float32 => "f32",
+    Float64 => "f64",
+    Int64 => "i64",
+)
+
 _element(::Type{T}) where {T} = error("No translation defined for $T")
+for (T,S) in TYPEMAPS
+    @eval _element(::Type{$T}) = Lib.gettype($S)
+end
 
 # This is horrible :(
 # I could at least move this to a compile time auto-generator
 function _back_element(x)
     str = Lib.c_type_name(x)
     d = Dict([
-        "char" => Bool,
-        "float" => Float32,
-        "double" => Float64,
-        "int64_t" => Int64, 
+        "char"      => Bool,
+        "float"     => Float32,
+        "double"    => Float64,
+        "int64_t"   => Int64, 
     ])
     return get(d, str, Any)
 end
@@ -23,23 +29,34 @@ end
 ##### Node
 #####
 
-struct Node{N}
+struct Node{T,N} <: AbstractArray{T, N}
     # CxxWrap std::shared_ptr to the actual backing node
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node,:St10shared_ptrIiE}
     op::String
+    # Optional data if the node was created from an array
+    data::AbstractArray
 end
 
-__getindex(shape, ::Val{N}) where {N} = (shape[N], __getindex(shape, Val{N-1}())...)
-__getindex(shape, ::Val{-1}) = ()
+Node{T,N}(ptr, op) where {T,N} = Node{T,N}(ptr, op, T[])
+function Node(x::AbstractArray{T,N}) where {T,N}
+    Node{T,N}(Lib.op_parameter(_element(T), _shape(size(x))), "Param", copy(x))
+end
 
-function Base.size(n::Node{N}) where {N}
+Node(x::Node) = x
+
+Base.getindex(n::Node{T,N}, inds...) where {T,N} = zero(T)
+function Base.size(n::Node{T,N}) where {T,N}
     shape = Lib.get_output_shape(n.ptr, zero(UInt64))
     @assert N == length(shape)
 
     return (__getindex(shape, Val{N-1}())...,)
 end
+
+__getindex(shape, ::Val{N}) where {N} = (shape[N], __getindex(shape, Val{N-1}())...)
+__getindex(shape, ::Val{-1}) = ()
+
 Base.axes(n::Node) = map(Base.OneTo, size(n))
-Base.ndims(n::Node{N}) where {N} = N
+Base.ndims(n::Node{T,N}) where {T,N} = N
 
 _tab(n) = " "^(4 * n)
 function Base.show(io::IO, N::Node)
@@ -68,24 +85,26 @@ Base.length(n::Node) = 1
 
 struct Tensor{T,N} <: AbstractArray{T,N}
     ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
-    param::Node{N}
 
     function Tensor{T}(::UndefInitializer, backend, inds::Vararg{Int,N}) where {T,N} 
         shape = _shape(inds)
         element = _element(T)
         ptr = Lib.create_tensor(backend, element, shape)
-        param = Node{N}(Lib.op_parameter(element, shape), "Param")
 
-        return new{T,N}(ptr, param)
+        return new{T,N}(ptr)
     end
 
-    function Tensor(backend, param::Node{N}) where {N}
+    function Tensor(backend, param::Node{T,N}) where {T,N}
         shape = _shape(size(param))
         element = Lib.get_output_element_type(param.ptr, UInt(0))
-        T = _back_element(element)
-        
-        ptr = Lib.create_tensor(backend, element, shape)
-        return new{T,N}(ptr, param)
+        ptr = Lib.create_tensor(backend, _element(T), shape)
+
+        A = new{T,N}(ptr)
+        # Check if the node have any data attached to it. If so, copy it into the tensor
+        if size(param.data) == size(param)
+            A .= param.data
+        end
+        return A
     end
 end
 

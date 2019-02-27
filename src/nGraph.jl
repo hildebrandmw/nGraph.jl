@@ -18,7 +18,6 @@ include("lib.jl"); using .Lib
 
 include("types.jl")
 include("ops.jl")
-include("compile.jl")
 include("flux.jl")
 #include("models.jl")
 

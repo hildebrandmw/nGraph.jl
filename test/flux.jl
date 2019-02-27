@@ -8,7 +8,6 @@
     expected = C(x)
 
     backend = nGraph.Lib.create("CPU") 
-
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, C, X)
 
