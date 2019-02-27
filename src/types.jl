@@ -6,6 +6,19 @@ _element(::Type{Float64}) = Lib.gettype("f64")
 _element(::Type{Int64}) = Lib.gettype("i64")
 _element(::Type{T}) where {T} = error("No translation defined for $T")
 
+# This is horrible :(
+# I could at least move this to a compile time auto-generator
+function _back_element(x)
+    str = Lib.c_type_name(x)
+    d = Dict([
+        "char" => Bool,
+        "float" => Float32,
+        "double" => Float64,
+        "int64_t" => Int64, 
+    ])
+    return get(d, str, Any)
+end
+
 #####
 ##### Node
 #####
@@ -26,6 +39,7 @@ function Base.size(n::Node{N}) where {N}
     return (__getindex(shape, Val{N-1}())...,)
 end
 Base.axes(n::Node) = map(Base.OneTo, size(n))
+Base.ndims(n::Node{N}) where {N} = N
 
 _tab(n) = " "^(4 * n)
 function Base.show(io::IO, N::Node)
@@ -54,9 +68,26 @@ Base.length(n::Node) = 1
 
 struct Tensor{T,N} <: AbstractArray{T,N}
     ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
-end
+    param::Node{N}
 
-Tensor{T}(::UndefInitializer, backend, inds::Vararg{Int,N}) where {T,N} = Tensor{T,N}(Lib.create_tensor(backend, _element(T), _shape(inds)))
+    function Tensor{T}(::UndefInitializer, backend, inds::Vararg{Int,N}) where {T,N} 
+        shape = _shape(inds)
+        element = _element(T)
+        ptr = Lib.create_tensor(backend, element, shape)
+        param = Node{N}(Lib.op_parameter(element, shape), "Param")
+
+        return new{T,N}(ptr, param)
+    end
+
+    function Tensor(backend, param::Node{N}) where {N}
+        shape = _shape(size(param))
+        element = Lib.get_output_element_type(param.ptr, UInt(0))
+        T = _back_element(element)
+        
+        ptr = Lib.create_tensor(backend, element, shape)
+        return new{T,N}(ptr, param)
+    end
+end
 
 function Tensor(backend, x::T) where {T} 
     t = Tensor{T}(undef, backend)
@@ -79,8 +110,15 @@ end
 
 function Base.getindex(t::Tensor{T,N}, i) where {T,N} 
     x = [zero(T)]
-    Lib.tensor_read(t.ptr, Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(x)))
+    GC.@preserve x Lib.tensor_read(t.ptr, Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(T)))
     return first(x)
+end
+
+# Need to define this to get around the MKL buffer-overflow bug
+function Base.collect(t::Tensor{T,N}) where {T,N}
+    x = Array{T}(undef, size(t)...)
+    GC.@preserve x Lib.tensor_read(t.ptr, Ptr{Cvoid}(pointer(x)), UInt64(0), UInt64(sizeof(x)))
+    return x
 end
 
 function Base.setindex!(t::Tensor{T,N}, v, i) where {T,N}

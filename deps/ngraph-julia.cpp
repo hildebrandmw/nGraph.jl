@@ -13,7 +13,9 @@
 
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 {
-    // Types
+    /////
+    ///// Elements
+    /////
     mod.add_type<ngraph::element::Type>("NGraphType")
         .method("c_type_name", &ngraph::element::Type::c_type_string);
 
@@ -34,6 +36,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     /////
+    ///// CoordinateDiff
+    /////
+    mod.add_type<ngraph::CoordinateDiff>("CoordinateDiff");
+    mod.method("make_coordinatediff", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+        return ngraph::CoordinateDiff(vals.begin(), vals.end());
+    });
+
+    /////
     ///// Shapes
     /////
     mod.add_type<ngraph::Shape>("Shape");
@@ -43,6 +53,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // Methods to facilitate instantiating a shape in Julia
     mod.method("shape_length", [](const ngraph::Shape s){return (int64_t) s.size();});
     mod.method("shape_getindex", [](const ngraph::Shape s, int64_t i){return (int64_t) s[i];});
+
+    //////
+    ////// Strides
+    //////
+    mod.add_type<ngraph::Strides>("Strides");
+    mod.method("make_strides", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+        return ngraph::Strides(vals.begin(), vals.end());
+    });
+
 
     /////
     ///// AxisSet
@@ -83,7 +102,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::Node>("Node")
         .method("get_output_size", &ngraph::Node::get_output_size)
         .method("get_output_element_type", &ngraph::Node::get_output_element_type)
-        .method("get_output_shape", &ngraph::Node::get_output_shape);
+        .method("get_output_shape", &ngraph::Node::get_output_shape)
+        .method("get_output_tensor", &ngraph::Node::get_output_tensor);
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
         .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)
@@ -131,6 +151,26 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         auto a = std::make_shared<ngraph::op::Broadcast>(arg, shape, broadcast_axes);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
+
+    mod.method("op_convolution", [](
+        const std::shared_ptr<ngraph::Node>& data_batch,
+        const std::shared_ptr<ngraph::Node>& filters,
+        const ngraph::Strides& window_movement_strides,
+        const ngraph::Strides& window_dilation_strides,
+        const ngraph::CoordinateDiff& padding_below,
+        const ngraph::CoordinateDiff& padding_above)
+    {
+        auto a = std::make_shared<ngraph::op::Convolution>(
+            data_batch, 
+            filters,
+            window_movement_strides,
+            window_dilation_strides,
+            padding_below,
+            padding_above);
+
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
 
     mod.method("op_dot", [](
         const std::shared_ptr<ngraph::Node> &arg0,
