@@ -6,6 +6,13 @@
 expand(N, i::Tuple) = i
 expand(N, i::Integer) = ntuple(_ -> i, N)
 
+# Default broadcasting to erroring to catch errors.
+#
+# We will extend certain valid ones later. 
+Base.broadcasted(::T, a::Node, b::Node) where {T} = error("Cannot braodcast $T over nodes")
+Base.broadcasted(::T, a, b::Node) where {T}= error("Cannot braodcast $T over nodes")
+Base.broadcasted(::T, a::Node, b) where {T}= error("Cannot braodcast $T over nodes")
+
 #####
 ##### Add
 #####
@@ -51,17 +58,8 @@ end
 #####
 
 function concat(nodes::Vector{Node{T,N}}; dims::Integer = 1) where {T,N}
-    @show size.(nodes)
-    node_vector = NodeVector(nodes...)
     # Flip dims for column -> row
-    node = Lib.op_concat(node_vector, N - dims)
-
-    # # Get the number of output dimensions
-    # N = length(Lib.get_output_shape(node.ptr, zero(UInt64)))
-
-    # # Get the output element type
-    # T = back(Lib.get_output_element_type(node.ptr, zero(UInt64)))
-
+    node = Lib.op_concat(NodeVector(nodes), N - dims)
     return Node{T,N}(node, "Concat")
 end
 
@@ -189,7 +187,9 @@ Base.broadcasted(::typeof(-), a::Node) = negative(a)
 #####
 
 parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
-parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(_element(T), shape(())), "Param")
+function parameter(x::T) where {T} 
+    Node{T,0}(Lib.op_parameter(_element(T), shape(())), "Param")
+end
 parameter(x::Node) = x
 
 #####

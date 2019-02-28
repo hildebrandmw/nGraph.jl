@@ -33,6 +33,14 @@ git-tree-sha1 = "055eb2690182ebc31087859c3dd8598371d3ef9e"
 uuid = "b99e7846-7c00-51b0-8f62-c81ae34c0232"
 version = "0.5.3"
 
+[[Cassette]]
+deps = ["InteractiveUtils", "LinearAlgebra", "Test"]
+git-tree-sha1 = "8dc16070b907eb2a8651bd4bb5eb8175e22f759f"
+repo-rev = "master"
+repo-url = "https://github.com/jrevels/Cassette.jl.git"
+uuid = "7057c7e9-c182-5462-911a-8362d720325c"
+version = "0.2.2+"
+
 [[CodecZlib]]
 deps = ["BinaryProvider", "Libdl", "Test", "TranscodingStreams"]
 git-tree-sha1 = "e3df104c84dfc108f0ca203fd7f5bbdc98641ae9"
@@ -268,9 +276,9 @@ version = "0.7.2"
 
 [[StaticArrays]]
 deps = ["InteractiveUtils", "LinearAlgebra", "Random", "Statistics", "Test"]
-git-tree-sha1 = "1eb114d6e23a817cd3e99abc3226190876d7c898"
+git-tree-sha1 = "3841b39ed5f047db1162627bf5f80a9cd3e39ae2"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "0.10.2"
+version = "0.10.3"
 
 [[Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]

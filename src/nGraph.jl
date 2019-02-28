@@ -1,6 +1,7 @@
 module nGraph
 
-using Zygote, Flux, NNlib
+using Flux
+using Cassette
 
 using CxxWrap
 using BenchmarkTools

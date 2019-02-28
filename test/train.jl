@@ -8,7 +8,7 @@ Flux.@treelike Quadratic
 
 @testset "Testing Simple Training" begin
     # We'd expect P to be forced to zero to minimize this quadratic objective.
-    P = Float32[1.0, 1.0, 1.0] 
+    P = param(Float32[1.0, 1.0, 1.0])
     f = Quadratic(P)
 
     x = Float32[1.0, 2.0, 3.0]

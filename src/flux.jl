@@ -1,7 +1,10 @@
 # Because julia-vim and YouCompleteMe don't get along
 _getsigma(x) = x.σ
 
-function (c::Flux.Conv{N,F,A,V})(x::Node) where {N,F,A <: Node, V <: Node}
+# Forward to `_conv_impl` so we can intercept normal `Conv` invocations from Cassette
+(c::Flux.Conv{N,F,A,V})(x::Node) where {N,F,A <: Node, V <: Node} = _conv_impl(c, x)
+
+function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
     sigma = _getsigma(c)
 
     # Perform the convolution
@@ -15,25 +18,20 @@ function (c::Flux.Conv{N,F,A,V})(x::Node) where {N,F,A <: Node, V <: Node}
     return node
 end
 
+# Again, getting around a Cassette issue
+_dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
+
 # Need to flip the convolution kernels
 # NOTE: nGraph's "convolution" is NNlib's crosscorrelation
 #
 # Need to flip the W and H dimensions of the filters
-function flip_kernel(x::AbstractArray{T,N}) where {T,N} 
-    view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...)
+function flip(x::AbstractArray{T,N}) where {T,N} 
+    collect(view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...))
 end
 
-flip(c) = c
-flip(c::Flux.Conv) = c.weight .= flip_kernel(c.weight)
-
-toparam(backend, x) = x
-toparam(backend, x::AbstractArray) = parameter(x)
-
-function find_implicit(x)
-    ts = Node[]
-    Flux.prefor(t -> isa(t, Node) && push!(ts, t), x)
-    return ts
-end
+#####
+##### Executable
+#####
 
 mutable struct Executable{V}
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Executable,:St10shared_ptrIiE}
@@ -43,34 +41,91 @@ mutable struct Executable{V}
     train::Bool
 end
 
-untrack(x) = Flux.Tracker.istracked(x) ? Flux.data(x) : x
+istracked(x) = Flux.Tracker.istracked(x)
+untrack(x) = istracked(x) ? Flux.data(x) : x
 
 astuple(x::Tuple) = x
 astuple(x) = (x,)
 
-unwrap(x::Tuple) = x
-unwrap(x::Tuple{T}) where {T} = first(x)
+untuple(x::Tuple) = x
+untuple(x::Tuple{T}) where {T} = first(x)
 
-function compile(backend, @nospecialize(f), args...; training = false, learning_rate = Float32(1))
-    # Flip convolutions kernels
-    g = Flux.mapleaves(untrack, f)
-    Flux.prefor(flip, g)
 
-    # Convert all leaf arrays to tensors
-    h = Flux.mapleaves(x -> toparam(backend, x), g)
+# Setup our Cassette passes.
+#
+# Basically, whenever we see a tracked object, we want to convert that object to a parameter
+# and record the use of that parameter.
+Cassette.@context SnoopCtx
 
-    # flip back
-    Flux.prefor(flip, g)
+# Intercept all methods - look for "tracked" objects, create a Node for them and register
+# their existence.
+# function register(ctx, x)
+#     # If this is a tracked object, register it with the metadata if it isn't already
+#     # registered
+#     if istracked(x) && !haskey(ctx.metadata, x)
+#         @show typeof(x)
+#         @show typeof(Flux.data(x))
+#         ctx.metadata[x] = Node(Flux.data(x))
+#     end
+#     return nothing
+# end
+
+register(ctx, x::Flux.Tracker.TrackedArray) = get!(ctx.metadata, x, Node(Flux.data(x)))
+register(ctx, x) = nothing
+
+function Cassette.prehook(ctx::SnoopCtx, f, args...) 
+    #println(f)
+    #println("    ", typeof.(args))
+    map(x -> register(ctx, x), args)
+end
+
+#Cassette.prehook(ctx::SnoopCtx, f::T, args...) where {T <: Flux.Tracker.TrackedArray} = nothing
+
+_untrack(ctx, x) = get(ctx.metadata, x, x)
+untrack(ctx, x) = _untrack.(Ref(ctx), x)
+
+Cassette.overdub(ctx::SnoopCtx, f, args...) = Cassette.recurse(ctx, f, untrack(ctx, args)...)
+
+# Get around a Cassette issue with it hating reverse
+Cassette.overdub(ctx::SnoopCtx, f::typeof(reverse), args...) = f(args...)
+Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) = Cassette.overdub(ctx, _dense_impl, f, args...)
+function Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv{N,F,A,V}, args...) where {N,F,A <: TrackedArray, V <: TrackedArray}
+    println("Overloading Conv")
+    # We need to flip the kernels for this to work - the easiest way to do this is to just
+    # create the Conv object we want and manually register the parameters.
+    weight = get!(ctx.metadata, f.weight, Node(flip(Flux.data(f.weight))))::Node
+    bias = get!(ctx.metadata, f.bias, Node(Flux.data(f.bias)))::Node
+
+    c = Flux.Conv(_getsigma(f), weight, bias, f.stride, f.pad, f.dilation)
+    Cassette.overdub(ctx, _conv_impl, c, args...)
+end
+
+# Skip Convolution constructors
+#
+# This is required when a Conv((3,3), 10 => 20 ... happens. During the construction of
+# the Conv type, a lot of tracking occurs. Here, we just skip that and hijack the results.
+function Cassette.overdub(ctx::SnoopCtx, f::UnionAll, args...)
+    println("Hijacking Convolution")
+    y = f(args...)
+    @show typeof(y)
+    return y
+end
+
+function compile(backend, f, args...; training = false, learning_rate = Float32(1))
+    ctx = SnoopCtx(metadata = IdDict{Any,Any}())
 
     # Extract the parameter from all the inputs
     inputs = Node.(args)
-    implicit_inputs = find_implicit(h)
-    outputs = astuple(h(inputs...))
+
+    outputs = astuple(Cassette.overdub(ctx, f, inputs...))
+    @assert all(x -> isa(x, Node), outputs)
+
+    implicit_inputs = collect(values(ctx.metadata))
     
     # Make sure we only get "nodes" as outputs
-    @show length(implicit_inputs) 
-    @show typeof.(outputs)
-    @assert all(x -> isa(x, Node), outputs)
+    #@show length(implicit_inputs) 
+    #@show typeof.(implicit_inputs)
+    #@show typeof.(outputs)
 
     # If we're training, we need to insert backprop nodes
     if training   
@@ -84,7 +139,6 @@ function compile(backend, @nospecialize(f), args...; training = false, learning_
         # However, I really need to think through an API that allows multiple optimizers.
         delta = -constant(convert(Float32, learning_rate))
         adjoints = Adjoints(loss, delta)
-
         implicit_outputs = [P + backprop_node(adjoints, P) for P in implicit_inputs]
     else
         implicit_outputs = Node[]
@@ -125,6 +179,6 @@ function (ex::Executable)(inputs...)
         ex.implicit_inputs, ex.implicit_outputs = ex.implicit_outputs, ex.implicit_inputs
     end
 
-    return unwrap(ex.outputs)
+    return untuple(ex.outputs)
 end
 

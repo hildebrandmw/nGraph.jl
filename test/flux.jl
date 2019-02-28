@@ -4,7 +4,7 @@
     b = rand(Float32, 256)
     x = rand(Float32, 14, 14, 128, 10)
 
-    C = Conv(w, b)
+    C = Conv(Flux.param(w), param(b))
     expected = C(x)
 
     backend = nGraph.Lib.create("CPU") 
@@ -21,8 +21,8 @@ end
 
 @testset begin
     m = Chain(
-        Dense(rand(Float32, 32, 28^2), rand(Float32, 32), relu),
-        Dense(rand(Float32, 10, 32), rand(Float32, 10))
+        Dense(28^2, 32, relu),
+        Dense(32, 10)
     )
 
     # Construct a dummy input.
