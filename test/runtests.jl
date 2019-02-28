@@ -1,6 +1,6 @@
 using nGraph
 using Test
-using nGraph.Flux
+using Flux, BenchmarkTools
 
 @testset "Testing Elements" begin
     elements = [
@@ -19,14 +19,18 @@ using nGraph.Flux
     ]
 
     for pair in elements
-        @test nGraph._element(pair[2]) == nGraph.Lib.gettype(pair[1])
-        println(pair[1], " => ", nGraph.Lib.c_type_name(nGraph._element(pair[2])))
+        @test nGraph.Element(pair[2]) == nGraph.Lib.gettype(pair[1])
+        println(pair[1], " => ", nGraph.Lib.c_type_name(nGraph.Element(pair[2])))
 
-        @test nGraph._back_element(nGraph._element(pair[2])) == pair[2]
+        @test nGraph.back(nGraph.Element(pair[2])) == pair[2]
     end
 end
 
-include("flux.jl")
+#include("ops.jl")
+#include("loss.jl")
+#include("flux.jl")
+#include("train.jl")
+include("mnist.jl")
 
 #=
 @testset "Simple Example" begin

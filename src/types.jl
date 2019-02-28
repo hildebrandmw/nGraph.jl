@@ -7,14 +7,16 @@ const TYPEMAPS = (
     Int64 => "i64",
 )
 
-_element(::Type{T}) where {T} = error("No translation defined for $T")
+const Element = Lib.NGraphTypeRef
+
+Element(::Type{T}) where {T} = error("No translation defined for $T")
 for (T,S) in TYPEMAPS
-    @eval _element(::Type{$T}) = Lib.gettype($S)
+    @eval Element(::Type{$T}) = Lib.gettype($S)
 end
 
 # This is horrible :(
 # I could at least move this to a compile time auto-generator
-function _back_element(x)
+function back(x::Element)
     str = Lib.c_type_name(x)
     d = Dict([
         "char"      => Bool,
@@ -24,6 +26,57 @@ function _back_element(x)
     ])
     return get(d, str, Any)
 end
+
+#####
+##### Shape
+#####
+
+const Shape = Lib.ShapeAllocated
+
+# Reverse shape for column major -> row major translation
+Shape(x::Vector) = Lib.make_shape(reverse(x))
+Shape(x::Tuple) = Shape(collect(x))
+Shape() = Shape(Int64[])
+Shape(::Tuple{}) = Shape()
+
+#####
+##### Strides
+#####
+
+const Strides = Lib.StridesAllocated
+
+Strides(x::Vector) = Lib.make_strides(x)
+Strides(x::Tuple) = Strides(collect(x))
+
+#####
+##### CoordinateDiff
+#####
+
+const CoordinateDiff = Lib.CoordinateDiffAllocated
+
+CoordinateDiff(x::Vector) = Lib.make_coordinatediff(x)
+CoordinateDiff(x::Tuple) = CoordinateDiff(collect(x))
+
+#####
+##### AxisSet
+#####
+
+const AxisSet = Lib.AxisSetAllocated
+
+AxisSet(x::Vector) = Lib.make_axisset(x)
+AxisSet(x::Tuple) = AxisSet(collect(x))
+AxisSet(x) = AxisSet([x])
+
+#####
+##### AxisVector
+#####
+
+const AxisVector = Lib.AxisVectorAllocated
+
+AxisVector(x::Vector) = Lib.make_axisvector(x)
+AxisVector(x::Tuple) = AxisVector(collect(x))
+AxisVector(x) = AxisVector([x])
+
 
 #####
 ##### Node
@@ -39,21 +92,24 @@ end
 
 Node{T,N}(ptr, op) where {T,N} = Node{T,N}(ptr, op, T[])
 function Node(x::AbstractArray{T,N}) where {T,N}
-    Node{T,N}(Lib.op_parameter(_element(T), _shape(size(x))), "Param", copy(x))
+    Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), "Param", copy(x))
 end
 
-Node(x::Node) = x
+function Node{T,N}(x::T) where {T,N}
+    Node{T,N}(Lib.op_constant(Element(T), Shape(), [x]), "Constant")
+end
 
+#Node(x::T) where {T <: Number} = Node{T,0}(x)
+
+Node(x::Node) = x
 Base.getindex(n::Node{T,N}, inds...) where {T,N} = zero(T)
+
 function Base.size(n::Node{T,N}) where {T,N}
     shape = Lib.get_output_shape(n.ptr, zero(UInt64))
     @assert N == length(shape)
 
-    return (__getindex(shape, Val{N-1}())...,)
+    return reverse(ntuple(i -> shape[i], N))
 end
-
-__getindex(shape, ::Val{N}) where {N} = (shape[N], __getindex(shape, Val{N-1}())...)
-__getindex(shape, ::Val{-1}) = ()
 
 Base.axes(n::Node) = map(Base.OneTo, size(n))
 Base.ndims(n::Node{T,N}) where {T,N} = N
@@ -75,10 +131,6 @@ function Base.show(io::IO, N::Node)
     end
 end
 
-Base.iterate(n::Node) = (n, nothing)
-Base.iterate(n::Node, ::Nothing) = nothing
-Base.length(n::Node) = 1
-
 #####
 ##### Tensor
 #####
@@ -87,17 +139,17 @@ struct Tensor{T,N} <: AbstractArray{T,N}
     ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
 
     function Tensor{T}(::UndefInitializer, backend, inds::Vararg{Int,N}) where {T,N} 
-        shape = _shape(inds)
-        element = _element(T)
+        shape = Shape(inds)
+        element = Element(T)
         ptr = Lib.create_tensor(backend, element, shape)
 
         return new{T,N}(ptr)
     end
 
     function Tensor(backend, param::Node{T,N}) where {T,N}
-        shape = _shape(size(param))
+        shape = Shape(size(param))
         element = Lib.get_output_element_type(param.ptr, UInt(0))
-        ptr = Lib.create_tensor(backend, _element(T), shape)
+        ptr = Lib.create_tensor(backend, Element(T), shape)
 
         A = new{T,N}(ptr)
         # Check if the node have any data attached to it. If so, copy it into the tensor
@@ -124,7 +176,7 @@ function Base.size(t::Tensor{T,N}) where {T,N}
     shape = Lib.get_shape(t.ptr)
     @assert N == length(shape)
 
-    return (__getindex(shape, Val{N-1}())...,)
+    return reverse(ntuple(i -> shape[i], N))
 end
 
 function Base.getindex(t::Tensor{T,N}, i) where {T,N} 
@@ -149,10 +201,19 @@ end
 Base.IndexStyle(::Tensor) = Base.IndexLinear()
 
 #####
+##### Adjoints
+#####
+
+const Adjoints = Lib.AdjointsAllocated
+
+Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
+backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), "Backprop")
+
+#####
 ##### Parameters
 #####
 
-function parameters(args::Node...)
+function ParameterVector(args::Node...)
     p = Lib.ParameterVector()
     for arg in args
         Lib.push!(p, arg.ptr)
@@ -164,7 +225,8 @@ end
 ##### Nodes
 #####
 
-function nodes(args::Node...)
+NodeVector(x::Node, args::Node...) = NodeVector((x,args...))
+function NodeVector(args)
     p = Lib.NodeVector()
     for arg in args
         Lib.push!(p, arg.ptr)

@@ -72,6 +72,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     /////
+    ///// AxisVector
+    /////
+    mod.add_type<ngraph::AxisVector>("AxisVector"); 
+    mod.method("make_axisvector", [](jlcxx::ArrayRef<int64_t, 1> arr){
+        return ngraph::AxisVector(arr.begin(), arr.end());
+    });
+
+    /////
     ///// Tensor
     /////
     mod.add_type<ngraph::runtime::Tensor>("Tensor")
@@ -129,8 +137,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::make_shared<ngraph::Function>(nodes, parameters);
     });
 
+    /////
+    ///// Adjoint
+    /////
 
-
+    mod.add_type<ngraph::autodiff::Adjoints>("Adjoints")
+        .constructor<const ngraph::NodeVector&, const ngraph::NodeVector&>()
+        .method("backprop_node", &ngraph::autodiff::Adjoints::backprop_node);
 
     /////
     ///// Ops
@@ -149,6 +162,24 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const ngraph::AxisSet& broadcast_axes)
     {
         auto a = std::make_shared<ngraph::op::Broadcast>(arg, shape, broadcast_axes);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_concat", [](
+        const ngraph::NodeVector& args,
+        int64_t concatenation_axis)
+    {
+        auto a = std::make_shared<ngraph::op::Concat>(args, concatenation_axis);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_constant", [](
+        const ngraph::element::Type& type,
+        ngraph::Shape shape,
+        const jlcxx::ArrayRef<float, 1>& jl_values)
+    {
+        std::vector<float> values = std::vector<float>(jl_values.begin(), jl_values.end());
+        auto a = std::make_shared<ngraph::op::Constant>(type, shape, values);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
@@ -171,6 +202,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_divide", [](
+        const std::shared_ptr<ngraph::Node>& arg0,
+        const std::shared_ptr<ngraph::Node>& arg1)
+    {
+        auto a = std::make_shared<ngraph::op::Divide>(arg0, arg1);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
 
     mod.method("op_dot", [](
         const std::shared_ptr<ngraph::Node> &arg0,
@@ -181,11 +219,35 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_log", [](const std::shared_ptr<ngraph::Node>& arg)
+    {
+        auto a = std::make_shared<ngraph::op::Log>(arg); 
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_maxpool", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::Shape& window_shape,
+        const ngraph::Strides& window_movement_strides,
+        const ngraph::Shape& padding_below,
+        const ngraph::Shape& padding_above)
+    {
+        auto a = std::make_shared<ngraph::op::MaxPool>(
+                arg, window_shape, window_movement_strides, padding_below, padding_above);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_mul", [](
         const std::shared_ptr<ngraph::Node> &arg0,
         const std::shared_ptr<ngraph::Node> &arg1)
     {
         auto a = std::make_shared<ngraph::op::Multiply>(arg0, arg1);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_negative", [](const std::shared_ptr<ngraph::Node>& arg)
+    {
+        auto a = std::make_shared<ngraph::op::Negative>(arg);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
@@ -206,6 +268,31 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_reshape", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::AxisVector& input_order,
+        const ngraph::Shape& output_shape)
+    {
+        auto a = std::make_shared<ngraph::op::Reshape>(arg, input_order, output_shape);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_softmax", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::AxisSet& axes)
+    {
+        auto a = std::make_shared<ngraph::op::Softmax>(arg, axes);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_sum", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::AxisSet& reduction_axes)
+    {
+        auto a = std::make_shared<ngraph::op::Sum>(arg, reduction_axes);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     /////
     ///// Executable
     /////
@@ -222,10 +309,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                 std::vector<std::shared_ptr<ngraph::runtime::Tensor>> outputs = {};
                 // TODO: validate this
                 for (auto i: jl_outputs)
-                    outputs.push_back(*jlcxx::unbox_wrapped_ptr< std::shared_ptr<ngraph::runtime::Tensor> >(i));
+                    outputs.push_back(
+                        *jlcxx::unbox_wrapped_ptr< std::shared_ptr<ngraph::runtime::Tensor> >(i)
+                    );
 
                 for (auto i: jl_inputs)
-                    inputs.push_back(*jlcxx::unbox_wrapped_ptr< std::shared_ptr<ngraph::runtime::Tensor> >(i));
+                    inputs.push_back(
+                        *jlcxx::unbox_wrapped_ptr< std::shared_ptr<ngraph::runtime::Tensor> >(i)
+                    );
 
                 executable->call(outputs, inputs);
             }
