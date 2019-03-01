@@ -44,8 +44,6 @@ function ResidualBlock(
 end
 
 function (block::ResidualBlock)(input)
-    println("Calling Residual Block!")
-    #local value = copy.(input)
     value = input
     for i in 1:length(block.conv_layers)-1
         value = relu.((block.norm_layers[i])((block.conv_layers[i])(value)))
@@ -141,5 +139,6 @@ end
     loss(x,y) = Flux.crossentropy(f(x), y)
     Y = nGraph.Tensor(backend, y)
 
-    #G = nGraph.compile(backend, loss, X, Y; training = true)
+    G = nGraph.compile(backend, loss, X, Y; training = false)
+    G(X,Y)
 end

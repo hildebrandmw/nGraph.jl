@@ -6,42 +6,6 @@
 expand(N, i::Tuple) = i
 expand(N, i::Integer) = ntuple(_ -> i, N)
 
-# Default broadcasting to erroring to catch errors.
-#
-# We will extend certain valid ones later. 
-Base.broadcasted(::T, a::Node, b::Node) where {T} = error("Cannot braodcast $T over nodes")
-Base.broadcasted(::T, a, b::Node) where {T}= error("Cannot braodcast $T over nodes")
-Base.broadcasted(::T, a::Node, b) where {T}= error("Cannot braodcast $T over nodes")
-
-#####
-##### Add
-#####
-
-Base.:+(a::Node{T, N}, b::Node{T, N}) where {T, N} = Node{T,N}(Lib.op_add(a.ptr, b.ptr), "Add")
-add(a::Node{T,N}, b::Node{T,N}) where {T,N} = a + b
-
-# Auto broadcast for add
-Base.broadcasted(::typeof(+), a::Node{T}, b::Node{T}) where {T, M, N} = add(expand(a,b)...)
-
-#####
-##### Broadcast
-#####
-
-# This defies the normal broadcast semantics, but in practice shouldn't be an issue.
-_broadcast_trailing(M,N) = [i-1 for i in 1:(N-M)]
-function Base.broadcast(
-        a::Node{T, M}, 
-        shape::NTuple{N,Int};
-        axes = _broadcast_trailing(M,N)
-    ) where {T,M,N}
-
-    # Construct the final shape from `shapw`
-    final_shape = Shape(shape)
-    axis_set = AxisSet(axes)
-
-    return Node{T,N}(Lib.op_broadcast(a.ptr, final_shape, axis_set), "Broadcast")
-end
-
 function expand(a::Node{T,M}, b::Node{T,N}) where {T,M,N}
     # Get the common axes for this object
     shape = map(last, Base.Broadcast.combine_axes(a, b))
@@ -53,6 +17,53 @@ function expand(a::Node{T,M}, b::Node{T,N}) where {T,M,N}
     return a, b
 end
 
+# Default broadcasting to erroring to catch errors.
+#
+# We will extend certain valid ones later. 
+#Base.broadcasted(::T, a::Node, b::Node) where {T} = error("Cannot braodcast $T over nodes")
+#Base.broadcasted(::T, a, b::Node) where {T}= error("Cannot braodcast $T over nodes")
+#Base.broadcasted(::T, a::Node, b) where {T}= error("Cannot braodcast $T over nodes")
+
+_forward(f) = f
+_forward(::typeof(*)) = multiply
+Base.broadcasted(f, x::Node, y::Node) = _forward(f)(expand(x,y)...)
+Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(expand(x, Node(y))...)
+Base.broadcasted(f, x::AbstractArray, y::Node) = _forward(f)(expand(Node(x), y)...)
+Base.broadcasted(f, x::Node) = f(x)
+
+Base.broadcasted(f, x::Node{T}, y::Number) where {T} = _forward(f)(expand(x, Node{T}(convert(T, y)))...)
+Base.broadcasted(f, x::Number, y::Node{T}) where {T} = _forward(f)(expand(Node{T}(convert(T, x)), y)...)
+
+
+Base.convert(::Type{Node{T,0}}, x::S) where {T,S} = Node{T,0}(convert(T, x))
+
+#####
+##### Add
+#####
+
+add(a::N, b::N) where {N <: Node} = N(Lib.op_add(a.ptr, b.ptr), "Add")
+Base.:+(a::Node, b::Node) = add(a,b)
+
+#####
+##### Broadcast
+#####
+
+# This defies the normal broadcast semantics, but in practice shouldn't be an issue.
+_broadcast_trailing(M,N) = [i-1 for i in 1:(N-M)]
+function Base.broadcast(
+        a::Node{T,M}, 
+        shape::NTuple{N,Int};
+        axes = _broadcast_trailing(M,N)
+    ) where {T,M,N}
+
+    # Construct the final shape from `shapw`
+    final_shape = Shape(shape)
+    axis_set = AxisSet(axes)
+
+    return Node{T,N}(Lib.op_broadcast(a.ptr, final_shape, axis_set), "Broadcast")
+end
+
+
 #####
 ##### Concat
 #####
@@ -60,7 +71,7 @@ end
 function concat(nodes::Vector{Node{T,N}}; dims::Integer = 1) where {T,N}
     # Flip dims for column -> row
     node = Lib.op_concat(NodeVector(nodes), N - dims)
-    return Node{T,N}(node, "Concat")
+    return Node{T,N}(node, "Concat", nodes...)
 end
 
 Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
@@ -70,39 +81,6 @@ Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
 #####
 
 constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]), "Constant")
-Base.convert(::Type{Node{T,N}}, x::S) where {T,N,S <: Number} = Node{T,N}(convert(T, x))
-Base.promote_rule(::Type{S}, ::Type{Node{T,N}}) where {T <: Number, S, N} = Node{promote_type(T,S),0}
-
-# This is a hack for now ...
-
-# Add
-Base.broadcasted(::typeof(+), a::Node{T}, b::S) where {T,S <: Number} = 
-    broadcasted(+, a, convert(Node{T,0}, b))
-
-Base.broadcasted(::typeof(+), b::S, a::Node{T}) where {T,S <: Number} = 
-    broadcasted(+, convert(Node{T,0}, b), a)
-
-# Multiply
-Base.broadcasted(::typeof(*), a::Node{T}, b::S) where {T,S <: Number} = 
-    broadcasted(*, a, convert(Node{T,0}, b))
-
-Base.broadcasted(::typeof(*), b::S, a::Node{T}) where {T,S <: Number} = 
-    broadcasted(*, convert(Node{T,0}, b), a)
-
-# Divide
-Base.broadcasted(::typeof(/), a::Node{T}, b::S) where {T,S <: Number} = 
-    broadcasted(/, a, convert(Node{T,0}, b))
-
-Base.broadcasted(::typeof(/), b::S, a::Node{T}) where {T,S <: Number} = 
-    broadcasted(/, convert(Node{T,0}, b), a)
-
-# Double Divide
-Base.broadcasted(::typeof(//), a::Node{T}, b::S) where {T,S <: Number} = 
-    broadcasted(//, a, convert(Node{T,0}, b))
-
-Base.broadcasted(::typeof(//), b::S, a::Node{T}) where {T,S <: Number} = 
-    broadcasted(//, convert(Node{T,0}, b), a)
-
 
 #####
 ##### Convolution
@@ -124,11 +102,8 @@ end
 
 divide(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_divide(a.ptr, b.ptr), "Divide")
 
-Base.broadcasted(::typeof(/), a::Node{T}, b::Node{T}) where {T} = divide(expand(a,b)...)
-Base.broadcasted(::typeof(//), a::Node, b::Node) = broadcasted(/, a, b)
-
-Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = Node{T,0}(Lib.op_divide(a.ptr, b.ptr), "Divide")
-Base.://(a::Node, b::Node) = a / b
+Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
+Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
 
 #####
 ##### Dot
@@ -140,12 +115,14 @@ dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} = Node{T,M}(Lib.op_dot(b.ptr, a
 
 # Fully Connected
 Base.:*(w::Node, x::Node) = dot(w, x, 1)
+Base.:*(w::Node, x::AbstractArray) = w * Node(x)
+Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 
 #####
 ##### Log
 #####
 
-Base.broadcasted(::typeof(log), a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(a.ptr), "Log")
+Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(a.ptr), "Log")
 
 #####
 ##### MaxPool
@@ -171,7 +148,12 @@ multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(a.ptr, b
 # nGraph defines element-wise multiply as a "Multiply" op. In julia semantics, this is the
 # same as a broadcasted elementwise multiply. To make this compatible with julia semantics,
 # overload the "broadcasted" function.
-Base.broadcasted(::typeof(*), a::Node{T}, b::Node{T}) where {T} = multiply(expand(a,b)...)
+#Base.broadcasted(::typeof(*), a::Node, b) where {T} = multiply(expand(a,b)...)
+#Base.broadcasted(::typeof(*), a::Node, b::AbstractArray) where {T} = broadcasted(multiply, a, b)
+#Base.broadcasted(::typeof(*), a::AbstractArray, b::Node) where {T} = broadcasted(multiply, a, b)
+#Base.broadcasted(::typeof(*), a::Node, b::Number) where {T} = broadcasted(multiply, a, b)
+#Base.broadcasted(::typeof(*), a::Number, b::Node) where {T} = broadcasted(multiply, a, b)
+#Base.broadcasted(::typeof(*), a::Node, b::Node) where {T} = broadcasted(multiply, a, b)
 
 #####
 ##### Negative
@@ -180,23 +162,21 @@ Base.broadcasted(::typeof(*), a::Node{T}, b::Node{T}) where {T} = multiply(expan
 negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(a.ptr), "Negative")
 
 Base.:-(a::Node) = negative(a)
-Base.broadcasted(::typeof(-), a::Node) = negative(a)
+#Base.broadcasted(::typeof(-), a::Node) = negative(a)
 
 #####
 ##### Parameter
 #####
 
 parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
-function parameter(x::T) where {T} 
-    Node{T,0}(Lib.op_parameter(_element(T), shape(())), "Param")
-end
+parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(_element(T), shape(())), IdSet{Node}(), "Param")
 parameter(x::Node) = x
 
 #####
 ##### Relu
 #####
 
-Base.broadcasted(::typeof(Flux.relu), a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(a.ptr), "Relu")
+Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(a.ptr), "Relu")
 
 #####
 ##### Reshape
@@ -231,9 +211,3 @@ function Base.sum(x::Node{T,N}; axes = ntuple(identity, N) ) where {T,N}
     node = Lib.op_sum(x.ptr, as) 
     return Node{T, N - length(axes)}(node, "Sum")
 end
-
-##### 
-##### Extra
-#####
-
-Base.broadcasted(::typeof(identity), a::Node) = a

@@ -2,8 +2,6 @@ struct Quadratic
     P
 end
 
-Flux.@treelike Quadratic
-
 (q::Quadratic)(x) = sum((x .+ q.P) .* (x .+ q.P))
 
 @testset "Testing Simple Training" begin

@@ -1,33 +1,57 @@
 # Because julia-vim and YouCompleteMe don't get along
 _getsigma(x) = x.σ
 
-# Forward to `_conv_impl` so we can intercept normal `Conv` invocations from Cassette
-(c::Flux.Conv{N,F,A,V})(x::Node) where {N,F,A <: Node, V <: Node} = _conv_impl(c, x)
-
 function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
-    sigma = _getsigma(c)
-
-    # Perform the convolution
-    cn = Flux.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
-
+    # We flip standard arrays since nGraph really perform cross-correlation
+    cn = Flux.conv(x, Node(flip(c.weight)); stride = c.stride, pad = c.pad, dilation = c.dilation)
     # Broadcast the bias along the first `N` dimensions and the last
     axis_set = (N + 2) .- [collect(1:N); N+2]
-    bb = broadcast(c.bias, size(cn); axes = axis_set)
+    bb = broadcast(Node(c.bias), size(cn); axes = axis_set)
 
-    node =  sigma.(cn .+ bb)
+    node =  _getsigma(c).(cn .+ bb)
     return node
 end
 
 # Again, getting around a Cassette issue
 _dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
 
+# Extend to unwrap tracked arrays
+function Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N}
+    return Node{T,N}(
+        Lib.op_parameter(Element(T), Shape(size(x))), 
+        "Param", 
+        copy(Flux.data(x))
+    )
+end
+
+# Methods defined to avoid ambiguity
+Base.:*(x::TrackedArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
+Base.:*(x::TrackedArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
+
 # Need to flip the convolution kernels
 # NOTE: nGraph's "convolution" is NNlib's crosscorrelation
 #
 # Need to flip the W and H dimensions of the filters
-function flip(x::AbstractArray{T,N}) where {T,N} 
+flip(x::Node) = x
+function flip(x::AbstractArray{<:Any,N}) where {N}
     collect(view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...))
 end
+
+Cassette.@context SnoopCtx
+
+function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x) where {T,N}
+    return get!(ctx.metadata, x, Cassette.recurse(ctx, f, x))::Node{T,N}
+end
+
+# Get around Cassette bug with `reverse`
+Cassette.overdub(::SnoopCtx, ::typeof(reverse), args...) = reverse(args...)
+
+# Hijack these layers
+Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) = 
+    Cassette.overdub(ctx, _dense_impl, f, args...)
+
+Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) = 
+    Cassette.overdub(ctx, _conv_impl, f, args...)
 
 #####
 ##### Executable
@@ -50,70 +74,8 @@ astuple(x) = (x,)
 untuple(x::Tuple) = x
 untuple(x::Tuple{T}) where {T} = first(x)
 
-
-# Setup our Cassette passes.
-#
-# Basically, whenever we see a tracked object, we want to convert that object to a parameter
-# and record the use of that parameter.
-Cassette.@context SnoopCtx
-
-# Intercept all methods - look for "tracked" objects, create a Node for them and register
-# their existence.
-# function register(ctx, x)
-#     # If this is a tracked object, register it with the metadata if it isn't already
-#     # registered
-#     if istracked(x) && !haskey(ctx.metadata, x)
-#         @show typeof(x)
-#         @show typeof(Flux.data(x))
-#         ctx.metadata[x] = Node(Flux.data(x))
-#     end
-#     return nothing
-# end
-
-register(ctx, x::Flux.Tracker.TrackedArray) = get!(ctx.metadata, x, Node(Flux.data(x)))
-register(ctx, x) = nothing
-
-function Cassette.prehook(ctx::SnoopCtx, f, args...) 
-    #println(f)
-    #println("    ", typeof.(args))
-    map(x -> register(ctx, x), args)
-end
-
-#Cassette.prehook(ctx::SnoopCtx, f::T, args...) where {T <: Flux.Tracker.TrackedArray} = nothing
-
-_untrack(ctx, x) = get(ctx.metadata, x, x)
-untrack(ctx, x) = _untrack.(Ref(ctx), x)
-
-Cassette.overdub(ctx::SnoopCtx, f, args...) = Cassette.recurse(ctx, f, untrack(ctx, args)...)
-
-# Get around a Cassette issue with it hating reverse
-Cassette.overdub(ctx::SnoopCtx, f::typeof(reverse), args...) = f(args...)
-Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) = Cassette.overdub(ctx, _dense_impl, f, args...)
-function Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv{N,F,A,V}, args...) where {N,F,A <: TrackedArray, V <: TrackedArray}
-    println("Overloading Conv")
-    # We need to flip the kernels for this to work - the easiest way to do this is to just
-    # create the Conv object we want and manually register the parameters.
-    weight = get!(ctx.metadata, f.weight, Node(flip(Flux.data(f.weight))))::Node
-    bias = get!(ctx.metadata, f.bias, Node(Flux.data(f.bias)))::Node
-
-    c = Flux.Conv(_getsigma(f), weight, bias, f.stride, f.pad, f.dilation)
-    Cassette.overdub(ctx, _conv_impl, c, args...)
-end
-
-# Skip Convolution constructors
-#
-# This is required when a Conv((3,3), 10 => 20 ... happens. During the construction of
-# the Conv type, a lot of tracking occurs. Here, we just skip that and hijack the results.
-function Cassette.overdub(ctx::SnoopCtx, f::UnionAll, args...)
-    println("Hijacking Convolution")
-    y = f(args...)
-    @show typeof(y)
-    return y
-end
-
 function compile(backend, f, args...; training = false, learning_rate = Float32(1))
-    ctx = SnoopCtx(metadata = IdDict{Any,Any}())
-
+    ctx = SnoopCtx(metadata = IdDict{Any,Node}())
     # Extract the parameter from all the inputs
     inputs = Node.(args)
 
@@ -122,10 +84,8 @@ function compile(backend, f, args...; training = false, learning_rate = Float32(
 
     implicit_inputs = collect(values(ctx.metadata))
     
-    # Make sure we only get "nodes" as outputs
     #@show length(implicit_inputs) 
     #@show typeof.(implicit_inputs)
-    #@show typeof.(outputs)
 
     # If we're training, we need to insert backprop nodes
     if training   
@@ -143,6 +103,9 @@ function compile(backend, f, args...; training = false, learning_rate = Float32(
     else
         implicit_outputs = Node[]
     end
+
+    #@show length(implicit_outputs)
+    #@show typeof.(implicit_outputs)
 
     # Create the formal ngraph function
     ngraph_function = Lib.make_function(

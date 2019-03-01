@@ -90,13 +90,18 @@ struct Node{T,N} <: AbstractArray{T, N}
     data::AbstractArray
 end
 
+Node{T,N}(ptr, op, parents::Node...) where {T,N} = Node{T,N}(ptr, op, T[])
+
 Node{T,N}(ptr, op) where {T,N} = Node{T,N}(ptr, op, T[])
-function Node(x::AbstractArray{T,N}) where {T,N}
-    Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), "Param", copy(x))
+
+Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
+function Node{T,N}(x::AbstractArray{T,N}) where {T,N}
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), "Param", copy(x))
 end
 
-function Node{T,N}(x::T) where {T,N}
-    Node{T,N}(Lib.op_constant(Element(T), Shape(), [x]), "Constant")
+
+function Node{T}(x::T) where {T}
+    Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]), "Constant")
 end
 
 #Node(x::T) where {T <: Number} = Node{T,0}(x)
@@ -207,7 +212,7 @@ Base.IndexStyle(::Tensor) = Base.IndexLinear()
 const Adjoints = Lib.AdjointsAllocated
 
 Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
-backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), "Backprop")
+backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), "Backprop", x)
 
 #####
 ##### Parameters
