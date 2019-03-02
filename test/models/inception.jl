@@ -70,7 +70,7 @@ end
 
     model = _googlenet()
 
-    x = rand(Float32, 224, 224, 3, 16)
+    x = zeros(Float32, 224, 224, 3, 16)
 
     backend = nGraph.Lib.create("CPU")
     X = nGraph.Tensor(backend, x)
@@ -79,18 +79,51 @@ end
     z = model(x)
     @test isapprox(z, collect(f(X)))
 
-    @time model(x)
-    @time model(x)
-    @time f(X)
-    @time f(X)
+    #@time model(x)
+    #@time model(x)
+    #@time f(X)
+    #@time f(X)
 
     @info "Compiling Training Pass for Inception"
     y = similar(model(x))
+    y .= zero(eltype(y))
+
     loss(x, y) = Flux.crossentropy(model(x), y)
     Y = nGraph.Tensor(backend, y)
-    g = nGraph.compile(backend, loss, X, Y; training = true)
+    #g = nGraph.compile(backend, loss, X, Y; optimizer = nGraph.SGD(Float32(0.001)))
 
-    @time g(X,Y)
-    @time g(X,Y)
-    @time g(X,Y)
+    #@time g(X,Y)
+    #@time g(X,Y)
+    #@time g(X,Y)
+
+    @info "Testing nGraph Gradients"
+    h = nGraph.compile(backend, loss, X, Y; optimizer = nGraph.Gradient)
+    @show collect(h(X,Y))
+
+    # Run the Flux back-propagation
+    @info "Taking Flux Gradients"
+    l = loss(x, y) 
+    @show l
+    ps = Flux.params(model)
+    @show length(ps)
+    Flux.back!(l)
+
+    # Now, we compare.
+    # The `Gradient` optimizer has a dict that maps the original tracked array to the 
+    # tensors that were built from them.
+    #
+    # We leverage this to check that
+    #
+    # - The data was captured correctly when parameters were constructed
+    # - The gradients computed by the two frameworks are rougly equal
+    gradient_map = h.optimizer._id  
+
+    for p in ps
+        @show typeof(p)
+        @test haskey(gradient_map, p)
+
+        if !haskey(gradient_map, p)
+            @show haskey(gradient_map, p.data)
+        end
+    end
 end

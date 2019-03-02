@@ -34,7 +34,6 @@ Base.broadcasted(f, x::Node) = f(x)
 Base.broadcasted(f, x::Node{T}, y::Number) where {T} = _forward(f)(expand(x, Node{T}(convert(T, y)))...)
 Base.broadcasted(f, x::Number, y::Node{T}) where {T} = _forward(f)(expand(Node{T}(convert(T, x)), y)...)
 
-
 Base.convert(::Type{Node{T,0}}, x::S) where {T,S} = Node{T,0}(convert(T, x))
 
 #####
@@ -43,6 +42,22 @@ Base.convert(::Type{Node{T,0}}, x::S) where {T,S} = Node{T,0}(convert(T, x))
 
 add(a::N, b::N) where {N <: Node} = N(Lib.op_add(a.ptr, b.ptr), "Add")
 Base.:+(a::Node, b::Node) = add(a,b)
+
+#####
+##### AvgPool
+#####
+
+function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
+    # Convert to nGraph types    
+    window_shape = Shape(shape)
+    strides = Strides(expand(N-2, stride)) 
+    padding_below = Shape(expand(N-2, pad))
+    padding_above = Shape(expand(N-2, pad))
+
+    ptr = Lib.op_avgpool(x.ptr, window_shape, strides, padding_below, padding_above)
+    return Node{T,N}(ptr, "AvgPool")
+end
+Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
 
 #####
 ##### Broadcast

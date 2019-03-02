@@ -139,6 +139,6 @@ end
     loss(x,y) = Flux.crossentropy(f(x), y)
     Y = nGraph.Tensor(backend, y)
 
-    G = nGraph.compile(backend, loss, X, Y; training = false)
+    G = nGraph.compile(backend, loss, X, Y)
     G(X,Y)
 end

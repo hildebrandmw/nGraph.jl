@@ -3,7 +3,18 @@ _getsigma(x) = x.σ
 
 function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
     # We flip standard arrays since nGraph really perform cross-correlation
-    cn = Flux.conv(x, Node(flip(c.weight)); stride = c.stride, pad = c.pad, dilation = c.dilation)
+    if flip_kernel(c.weight)
+        n = flip!(Node(c.weight))
+        
+        cn = Flux.conv(
+            x, 
+            n;
+            stride = reverse(c.stride), 
+            pad = reverse(c.pad),
+            dilation = reverse(c.dilation))
+    else
+        cn = Flux.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
+    end
     # Broadcast the bias along the first `N` dimensions and the last
     axis_set = (N + 2) .- [collect(1:N); N+2]
     bb = broadcast(Node(c.bias), size(cn); axes = axis_set)
@@ -32,10 +43,12 @@ Base.:*(x::TrackedArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 # NOTE: nGraph's "convolution" is NNlib's crosscorrelation
 #
 # Need to flip the W and H dimensions of the filters
-flip(x::Node) = x
-function flip(x::AbstractArray{<:Any,N}) where {N}
-    collect(view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...))
+function flip!(x::Node{T,N}) where {T,N}
+    x.data .= view(x.data, size(x.data, 1):-1:1, size(x.data, 2):-1:1, ntuple(_->:, N-2)...)
 end
+
+flip_kernel(x::AbstractArray) = true
+flip_kernel(x) = false
 
 Cassette.@context SnoopCtx
 
@@ -57,16 +70,11 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
 ##### Executable
 #####
 
-mutable struct Executable{V}
+mutable struct Executable{V,T}
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Executable,:St10shared_ptrIiE}
     outputs::V
-    implicit_inputs::Vector
-    implicit_outputs::Vector
-    train::Bool
+    optimizer::T
 end
-
-istracked(x) = Flux.Tracker.istracked(x)
-untrack(x) = istracked(x) ? Flux.data(x) : x
 
 astuple(x::Tuple) = x
 astuple(x) = (x,)
@@ -74,74 +82,158 @@ astuple(x) = (x,)
 untuple(x::Tuple) = x
 untuple(x::Tuple{T}) where {T} = first(x)
 
-function compile(backend, f, args...; training = false, learning_rate = Float32(1))
+function compile(backend, f, args...; optimizer = Inference())
     ctx = SnoopCtx(metadata = IdDict{Any,Node}())
     # Extract the parameter from all the inputs
     inputs = Node.(args)
 
+    # Perform traced execution on the function.
+    @info "Tracing"
     outputs = astuple(Cassette.overdub(ctx, f, inputs...))
     @assert all(x -> isa(x, Node), outputs)
 
-    implicit_inputs = collect(values(ctx.metadata))
-    
-    #@show length(implicit_inputs) 
-    #@show typeof.(implicit_inputs)
+    # Get all of the implicit parameters that were instantiated during traced execution.
+    params = collect(values(ctx.metadata))
+    @info "Found $(length(params)) params" 
 
-    # If we're training, we need to insert backprop nodes
-    if training   
-        # Assume the first output is the loss
-        loss = first(outputs) 
-        if size(loss) != ()
-            error("Expected Loss to be a Scalar.")
-        end
-
-        ### TODO: For now, just make the learning rate an extra implicit parameter
-        # However, I really need to think through an API that allows multiple optimizers.
-        delta = -constant(convert(Float32, learning_rate))
-        adjoints = Adjoints(loss, delta)
-        implicit_outputs = [P + backprop_node(adjoints, P) for P in implicit_inputs]
-    else
-        implicit_outputs = Node[]
-    end
-
-    #@show length(implicit_outputs)
-    #@show typeof.(implicit_outputs)
+    arg_tuple = (
+        inputs = inputs,
+        outputs = outputs,
+        params = params,
+        _id = ctx.metadata,
+    )
+    @info "Creating Optimizer"
+    opt, opt_inputs, opt_outputs  = create(optimizer, backend, arg_tuple)
 
     # Create the formal ngraph function
     ngraph_function = Lib.make_function(
-        NodeVector(outputs..., implicit_outputs...), 
-        ParameterVector(inputs..., implicit_inputs...)
+        NodeVector(outputs..., opt_outputs...), 
+        ParameterVector(inputs..., opt_inputs...)
     )
 
     # Compile the executable
+    @info "Compiling Function"
     ex = Lib.compile(backend, ngraph_function, false)
 
     # Create tensors for the outputs
-    output_tensors = map(x -> Tensor(backend, x), outputs) 
-    implicit_input_tensors = map(x -> Tensor(backend, x), implicit_inputs)
-    implicit_output_tensors = map(x -> Tensor(backend, x), implicit_outputs)
+    tensors = map(x -> Tensor(backend, x), outputs) 
 
-    return Executable(
-        ex, 
-        output_tensors, 
-        implicit_input_tensors,
-        implicit_output_tensors,
-        training
-    )
+    return Executable(ex, tensors, opt)
 end
 
-function (ex::Executable)(inputs...) 
-    all_inputs = Any[i.ptr for i in [collect(inputs); ex.implicit_inputs]]
-    outputs = Any[o.ptr for o in [collect(ex.outputs); ex.implicit_outputs]]
+function (ex::Executable)(args...) 
+    inputs = Any[i.ptr for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
+    outputs = Any[o.ptr for o in Iterators.flatten((ex.outputs, getoutputs(ex.optimizer)))]
     
     # Since we're passing wrapped type to C++, we have to cast them to Any's
-    Lib.call(ex.ptr, outputs, all_inputs)
+    Lib.call(ex.ptr, outputs, inputs)
 
-    # If training, swap the implicit parameters for the next run.
-    if ex.train
-        ex.implicit_inputs, ex.implicit_outputs = ex.implicit_outputs, ex.implicit_inputs
-    end
+    update!(ex.optimizer)
 
     return untuple(ex.outputs)
 end
+
+#####
+##### Optimizers
+#####
+
+create(f::Any, backend, args::NamedTuple) = create(f, backend, args.inputs, args.outputs, args.params)
+
+# Inference 'Optimizer'
+struct Inference end
+
+struct InferenceState
+    tensors::Vector
+end
+
+function create(::Inference, backend, inputs, outputs, params)
+    I = InferenceState(map(x -> Tensor(backend, x), params))
+    return I, params, ()
+end
+
+getinputs(I::InferenceState) = I.tensors
+getoutputs(I::InferenceState) = ()
+update!(I::InferenceState) = nothing
+
+# Just get the Gradients
+struct Gradient 
+    params::Vector
+    gradients::Vector
+    _id::IdDict
+end
+
+function create(::Type{Gradient}, backend, args::NamedTuple)
+    # Unwrap everything and hijack the ID Dict mapping Tracked Arrays to nodes so
+    # we can create a new ID Dict mapping Tracked Arrays to Tensors.
+    #
+    # This will let us compare the gradients calculated by nGraph and those calculated by
+    # Flux.
+    inputs = args.inputs
+    outputs = args.outputs
+    params = args.params
+
+    # Map params nodes back to their parent TrackedArray
+    @info "Reversing ID Dict"
+    id_rev = IdDict()
+    for (k,v) in args._id
+        id_rev[v] = k
+    end
+
+    # Create a backprop node for each parameter
+    @info "Inserting Backprop Nodes"
+    adjoints = Adjoints(first(outputs), constant(Float32(1)))
+    gradients = [backprop_node(adjoints, n) for n in params]
+
+    # Create tensors for the parameters and gradients
+    param_tensors = Tensor[] 
+    gradient_tensors = Tensor[]
+    grad_map = IdDict()
+    @info "Creating Tensors"
+    for n in params
+        pt = Tensor(backend, n)
+        gt = Tensor(backend, n)
+        
+        grad_map[id_rev[n]] = (pt, gt)
+
+        push!(param_tensors, pt)
+        push!(gradient_tensors, gt)
+    end
+    G = Gradient(param_tensors, gradient_tensors, grad_map)
+
+    return G, params, gradients
+end
+
+getinputs(G::Gradient) = G.params
+getoutputs(G::Gradient) = G.gradients
+update!(::Gradient) = nothing
+
+# Standard SGD
+struct SGD{T <: Number}
+    learning_rate::T
+end
+
+mutable struct SGDState
+    inputs::Vector
+    outputs::Vector
+end
+
+function create(sgd::SGD, backend, inputs, outputs, params)
+    # Create a backprop node for each parameter
+    adjoints = Adjoints(first(outputs), -constant(sgd.learning_rate))
+    updates = [n + backprop_node(adjoints, n) for n in params]
+
+    # Create tensors for the parameters and gradients
+    param_tensors = map(x -> Tensor(backend, x), params)
+    update_tensors = map(x -> Tensor(backend, x), updates)
+
+    S = SGDState(param_tensors, update_tensors)
+
+    return S, params, updates
+end
+
+getinputs(S::SGDState) = S.inputs
+getoutputs(S::SGDState) = S.outputs
+
+# Swap
+update!(S::SGDState) = S.inputs, S.outputs = S.outputs, S.inputs
 

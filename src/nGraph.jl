@@ -2,6 +2,7 @@ module nGraph
 
 using Flux
 using Cassette
+using IterTools
 
 using CxxWrap
 using BenchmarkTools

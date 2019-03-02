@@ -158,6 +158,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_avgpool", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::Shape& window_shape,
+        const ngraph::Strides& window_movement_strides,
+        const ngraph::Shape& padding_below,
+        const ngraph::Shape& padding_above)
+    {
+        auto a = std::make_shared<ngraph::op::AvgPool>(
+            arg, window_shape, window_movement_strides, padding_below, padding_above, false);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_broadcast", [](
         const std::shared_ptr<ngraph::Node> &arg,
         const ngraph::Shape& shape,
@@ -357,3 +369,4 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     //    .method("disablepmem", &ngraph::PoolManager::disablepmem)
     //    .method("isenabled", &ngraph::PoolManager::isenabled);
 }
+
