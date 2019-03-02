@@ -160,15 +160,13 @@ end
 
 multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(a.ptr, b.ptr), "Multiply")
 
-# nGraph defines element-wise multiply as a "Multiply" op. In julia semantics, this is the
-# same as a broadcasted elementwise multiply. To make this compatible with julia semantics,
-# overload the "broadcasted" function.
-#Base.broadcasted(::typeof(*), a::Node, b) where {T} = multiply(expand(a,b)...)
-#Base.broadcasted(::typeof(*), a::Node, b::AbstractArray) where {T} = broadcasted(multiply, a, b)
-#Base.broadcasted(::typeof(*), a::AbstractArray, b::Node) where {T} = broadcasted(multiply, a, b)
-#Base.broadcasted(::typeof(*), a::Node, b::Number) where {T} = broadcasted(multiply, a, b)
-#Base.broadcasted(::typeof(*), a::Number, b::Node) where {T} = broadcasted(multiply, a, b)
-#Base.broadcasted(::typeof(*), a::Node, b::Node) where {T} = broadcasted(multiply, a, b)
+#####
+##### Minimum
+#####
+
+# The `min` and `minimum` semantics are swapped between Julia and nGraph.
+Base.minimum(a::N, b::N) where {N <: Node} = N(Lib.op_minimum(a.ptr, b.ptr), "Minimum")
+_forward(::typeof(min)) = minimum
 
 #####
 ##### Negative
@@ -186,6 +184,13 @@ Base.:-(a::Node) = negative(a)
 parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
 parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(_element(T), shape(())), IdSet{Node}(), "Param")
 parameter(x::Node) = x
+
+#####
+##### Power
+#####
+
+power(a::N, b::N) where {N <: Node} = N(Lib.op_parameter(a.ptr, b.ptr), "Power")
+Base.:^(a::N, b::N) where {N <: Node} = power(a, b)
 
 #####
 ##### Relu
@@ -215,6 +220,13 @@ function Flux.softmax(x::Node{T,N}; axes = N-1) where {T,N}
     node = Lib.op_softmax(x.ptr, av)
     return Node{T,N}(node, "Softmax")
 end
+
+#####
+##### Subtract
+#####
+
+subtract(a::N, b::N) where {N <: Node} = N(Lib.op_subtract(a.ptr, b.ptr), "Subtract")
+Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
 
 #####
 ##### Sum

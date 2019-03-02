@@ -251,6 +251,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_minimum", [](
+        const std::shared_ptr<ngraph::Node> &arg0,
+        const std::shared_ptr<ngraph::Node> &arg1)
+    {
+        auto a = std::make_shared<ngraph::op::Minimum>(arg0, arg1);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+
     mod.method("op_mul", [](
         const std::shared_ptr<ngraph::Node> &arg0,
         const std::shared_ptr<ngraph::Node> &arg1)
@@ -277,6 +286,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_power", [](
+        const std::shared_ptr<ngraph::Node>& arg0,
+        const std::shared_ptr<ngraph::Node>& arg1)
+    {
+        auto a = std::make_shared<ngraph::op::Power>(arg0, arg1);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_relu", [](const std::shared_ptr<ngraph::Node> &arg){
         auto a = std::make_shared<ngraph::op::Relu>(arg);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
@@ -296,6 +313,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const ngraph::AxisSet& axes)
     {
         auto a = std::make_shared<ngraph::op::Softmax>(arg, axes);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_subtract", [](
+        const std::shared_ptr<ngraph::Node>& arg0,
+        const std::shared_ptr<ngraph::Node>& arg1)
+    {
+        auto a = std::make_shared<ngraph::op::Subtract>(arg0, arg1);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 

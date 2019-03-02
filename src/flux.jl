@@ -4,16 +4,16 @@ _getsigma(x) = x.σ
 function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
     # We flip standard arrays since nGraph really perform cross-correlation
     if flip_kernel(c.weight)
-        n = flip!(Node(c.weight))
-        
-        cn = Flux.conv(
+        n = Node(c.weight)
+        flip!(n)
+        cn = NNlib.conv(
             x, 
             n;
             stride = reverse(c.stride), 
             pad = reverse(c.pad),
             dilation = reverse(c.dilation))
     else
-        cn = Flux.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
+        cn = NNlib.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
     end
     # Broadcast the bias along the first `N` dimensions and the last
     axis_set = (N + 2) .- [collect(1:N); N+2]
@@ -43,8 +43,9 @@ Base.:*(x::TrackedArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 # NOTE: nGraph's "convolution" is NNlib's crosscorrelation
 #
 # Need to flip the W and H dimensions of the filters
-function flip!(x::Node{T,N}) where {T,N}
-    x.data .= view(x.data, size(x.data, 1):-1:1, size(x.data, 2):-1:1, ntuple(_->:, N-2)...)
+flip!(n::Node) = flip!(n.data)
+function flip!(x::AbstractArray{T,N}) where {T,N}
+    x .= view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...)
 end
 
 flip_kernel(x::AbstractArray) = true
@@ -52,6 +53,7 @@ flip_kernel(x) = false
 
 Cassette.@context SnoopCtx
 
+# Hijack Node constructors from TrackedArrays
 function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x) where {T,N}
     return get!(ctx.metadata, x, Cassette.recurse(ctx, f, x))::Node{T,N}
 end

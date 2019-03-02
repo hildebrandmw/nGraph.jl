@@ -70,7 +70,7 @@ end
 
     model = _googlenet()
 
-    x = zeros(Float32, 224, 224, 3, 16)
+    x = rand(Float32, 224, 224, 3, 16)
 
     backend = nGraph.Lib.create("CPU")
     X = nGraph.Tensor(backend, x)
@@ -88,7 +88,7 @@ end
     y = similar(model(x))
     y .= zero(eltype(y))
 
-    loss(x, y) = Flux.crossentropy(model(x), y)
+    loss(x, y) = sum(model(x) .- y)
     Y = nGraph.Tensor(backend, y)
     #g = nGraph.compile(backend, loss, X, Y; optimizer = nGraph.SGD(Float32(0.001)))
 
@@ -119,11 +119,25 @@ end
     gradient_map = h.optimizer._id  
 
     for p in ps
-        @show typeof(p)
         @test haskey(gradient_map, p)
+    end
 
-        if !haskey(gradient_map, p)
-            @show haskey(gradient_map, p.data)
+    for p in ps
+        # If this is a convolution weight, we need to flip it to compare data and gradients
+        if ndims(p) == 4 
+            # Get the data tensor from the gradient map. Make sure we copied it correctly.
+            x = copy(p.data)
+            nGraph.flip!(x)
+            @test isapprox(collect(gradient_map[p][1]), x)
+
+            # Check that the gradients are the same as well
+            x = copy(p.grad) 
+            nGraph.flip!(x)
+            @test isapprox(collect(gradient_map[p][2]), x)
+        else
+            @test isapprox(collect(gradient_map[p][1]), p.data)
+            @test isapprox(collect(gradient_map[p][2]), p.grad)
+
         end
     end
 end
