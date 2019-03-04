@@ -384,14 +384,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
 
     // PMDK stuff
-    //mod.add_type<ngraph::PoolManager>("PoolManager")
-    //    .method("getinstance", &ngraph::PoolManager::getinstance)
-    //    .method("setpool", &ngraph::PoolManager::setpool)
-    //    .method("createpool", &ngraph::PoolManager::createpool)
-    //    .method("openpool", &ngraph::PoolManager::openpool)
-    //    .method("closepool", &ngraph::PoolManager::closepool)
-    //    .method("enablepmem", &ngraph::PoolManager::enablepmem)
-    //    .method("disablepmem", &ngraph::PoolManager::disablepmem)
-    //    .method("isenabled", &ngraph::PoolManager::isenabled);
+    mod.add_type<ngraph::PoolManager>("PoolManager")
+        .method("getinstance", &ngraph::PoolManager::getinstance)
+        .method("setpool", &ngraph::PoolManager::setpool)
+        .method("createpool", &ngraph::PoolManager::createpool)
+        .method("openpool", &ngraph::PoolManager::openpool)
+        .method("closepool", &ngraph::PoolManager::closepool)
+        .method("enablepmem", &ngraph::PoolManager::enablepmem)
+        .method("disablepmem", &ngraph::PoolManager::disablepmem)
+        .method("isenabled", &ngraph::PoolManager::isenabled);
 }
 

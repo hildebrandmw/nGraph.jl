@@ -6,7 +6,9 @@ using CxxWrap, LibGit2
 
 # Fetch repo
 url = "https://github.com/darchr/ngraph"
-branch = "master"
+#branch = "master"
+branch = "mh/persistent-malloc"
+
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
 
