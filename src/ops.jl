@@ -9,6 +9,7 @@ expand(N, i::Integer) = ntuple(_ -> i, N)
 function expand(a::Node{T,M}, b::Node{T,N}) where {T,M,N}
     # Get the common axes for this object
     shape = map(last, Base.Broadcast.combine_axes(a, b))
+    @show shape
 
     # Make broadcasts if needed.
     a = (size(a) == shape) ? a : broadcast(a, shape)
@@ -64,7 +65,7 @@ Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
 #####
 
 # This defies the normal broadcast semantics, but in practice shouldn't be an issue.
-_broadcast_trailing(M,N) = [i-1 for i in 1:(N-M)]
+_broadcast_trailing(M,N) = [i for i in 1:(N-M)]
 function Base.broadcast(
         a::Node{T,M}, 
         shape::NTuple{N,Int};
@@ -73,6 +74,7 @@ function Base.broadcast(
 
     # Construct the final shape from `shapw`
     final_shape = Shape(shape)
+    @show axes
     axis_set = AxisSet(axes)
 
     return Node{T,N}(Lib.op_broadcast(a.ptr, final_shape, axis_set), "Broadcast")
@@ -202,10 +204,10 @@ Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(a.ptr), "Relu")
 ##### Reshape
 #####
 
-# We're hijacking an internal Base function here to do all of the `Base.Colon` preprocessing
-# for us
+# NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon` 
+# preprocessing for us
 function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
-    av = AxisVector(ntuple(i -> i-1, N))
+    av = AxisVector(ntuple(identity, N))
     shape = Shape(dims)
     node = Lib.op_reshape(x.ptr, av, shape)
     return Node{T,M}(node, "Reshape")
@@ -215,7 +217,7 @@ end
 ##### Softmax
 #####
 
-function Flux.softmax(x::Node{T,N}; axes = N-1) where {T,N}
+function Flux.softmax(x::Node{T,N}; axes = N) where {T,N}
     av = AxisSet(axes)
     node = Lib.op_softmax(x.ptr, av)
     return Node{T,N}(node, "Softmax")
@@ -234,7 +236,7 @@ Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
 
 # Default to reducing along all dimensions
 function Base.sum(x::Node{T,N}; axes = ntuple(identity, N) ) where {T,N}
-    as = AxisSet(axes .- 1)
+    as = AxisSet(axes)
     node = Lib.op_sum(x.ptr, as) 
     return Node{T, N - length(axes)}(node, "Sum")
 end

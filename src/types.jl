@@ -28,16 +28,30 @@ function back(x::Element)
 end
 
 #####
+##### CoordinateDiff
+#####
+
+const CoordinateDiff = Lib.CoordinateDiffAllocated
+
+CoordinateDiff(x::Vector) = Lib.CoordinateDiff(x)
+CoordinateDiff(x::Tuple) = CoordinateDiff(collect(x))
+
+#####
 ##### Shape
 #####
 
-const Shape = Lib.ShapeAllocated
+const Shape = Union{Lib.ShapeAllocated, Lib.ShapeRef}
 
 # Reverse shape for column major -> row major translation
-Shape(x::Vector) = Lib.make_shape(reverse(x))
-Shape(x::Tuple) = Shape(collect(x))
-Shape() = Shape(Int64[])
-Shape(::Tuple{}) = Shape()
+Shape(x::Vector)    = Lib.Shape(reverse(x))
+Shape(x::Tuple)     = Shape(collect(x))
+Shape()             = Shape(Int64[])
+Shape(::Tuple{})    = Shape()
+
+Base.length(x::Shape) = Lib._length(x)
+Base.getindex(x::Shape, i) = Lib._getindex(x, convert(Int64, length(x) - i))
+
+Shape(x::Lib.CxxWrap.SmartPointer) = Lib.get_shape(x)
 
 #####
 ##### Strides
@@ -45,17 +59,8 @@ Shape(::Tuple{}) = Shape()
 
 const Strides = Lib.StridesAllocated
 
-Strides(x::Vector) = Lib.make_strides(x)
+Strides(x::Vector) = Lib.Strides(x)
 Strides(x::Tuple) = Strides(collect(x))
-
-#####
-##### CoordinateDiff
-#####
-
-const CoordinateDiff = Lib.CoordinateDiffAllocated
-
-CoordinateDiff(x::Vector) = Lib.make_coordinatediff(x)
-CoordinateDiff(x::Tuple) = CoordinateDiff(collect(x))
 
 #####
 ##### AxisSet
@@ -63,7 +68,8 @@ CoordinateDiff(x::Tuple) = CoordinateDiff(collect(x))
 
 const AxisSet = Lib.AxisSetAllocated
 
-AxisSet(x::Vector) = Lib.make_axisset(x)
+# Subtract 1 for index 0 to index 1 alignment
+AxisSet(x::Vector) = Lib.AxisSet(x .- 1)
 AxisSet(x::Tuple) = AxisSet(collect(x))
 AxisSet(x) = AxisSet([x])
 
@@ -73,9 +79,24 @@ AxisSet(x) = AxisSet([x])
 
 const AxisVector = Lib.AxisVectorAllocated
 
-AxisVector(x::Vector) = Lib.make_axisvector(x)
+# Subtract 1 for index 1 to index 0 alignment
+AxisVector(x::Vector) = Lib.AxisVector(x .- 1)
 AxisVector(x::Tuple) = AxisVector(collect(x))
 AxisVector(x) = AxisVector([x])
+
+#####
+##### Backend
+#####
+
+struct Backend
+    ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
+end
+
+Backend(str::String = "CPU") = Backend(Lib.create(str))
+
+#####
+##### NFunction
+#####
 
 
 #####
@@ -104,8 +125,6 @@ function Node{T}(x::T) where {T}
     Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]), "Constant")
 end
 
-#Node(x::T) where {T <: Number} = Node{T,0}(x)
-
 Node(x::Node) = x
 Base.getindex(n::Node{T,N}, inds...) where {T,N} = zero(T)
 
@@ -113,28 +132,23 @@ function Base.size(n::Node{T,N}) where {T,N}
     shape = Lib.get_output_shape(n.ptr, zero(UInt64))
     @assert N == length(shape)
 
-    return reverse(ntuple(i -> shape[i], N))
+    return ntuple(i -> shape[i], N)
 end
 
+# Forwards
+name(N::Node) = Lib.get_name(N.ptr)
+description(N::Node) = Lib.description(N.ptr)
+
+"""
+    copy(N::Node, args::NodeVector)
+
+Construct a copy of `N` with `args` as input arguments.
+"""
+Base.copy(N::Node, args) = Lib.copy_with_new_args(N.ptr, args)
+
+# Base Methods
 Base.axes(n::Node) = map(Base.OneTo, size(n))
 Base.ndims(n::Node{T,N}) where {T,N} = N
-
-_tab(n) = " "^(4 * n)
-function Base.show(io::IO, N::Node)
-    # Print out metadata associated with the node.
-    println(io, "nGraph Node: $(N.op)")
-    num_outputs = Lib.get_output_size(N.ptr)
-    for i in 0:num_outputs-1
-        println(io, _tab(1), "Output $i: ")
-        println(io, 
-            _tab(2), 
-            "Element Type: ", 
-            Lib.c_type_name(Lib.get_output_element_type(N.ptr, i))
-        )
-
-        println(io, _tab(2), "Shape: $(size(N))")
-    end
-end
 
 #####
 ##### Tensor
@@ -143,18 +157,18 @@ end
 struct Tensor{T,N} <: AbstractArray{T,N}
     ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
 
-    function Tensor{T}(::UndefInitializer, backend, inds::Vararg{Int,N}) where {T,N} 
+    function Tensor{T}(::UndefInitializer, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
         shape = Shape(inds)
         element = Element(T)
-        ptr = Lib.create_tensor(backend, element, shape)
+        ptr = Lib.create_tensor(backend.ptr, element, shape)
 
         return new{T,N}(ptr)
     end
 
-    function Tensor(backend, param::Node{T,N}) where {T,N}
+    function Tensor(backend::Backend, param::Node{T,N}) where {T,N}
         shape = Shape(size(param))
         element = Lib.get_output_element_type(param.ptr, UInt(0))
-        ptr = Lib.create_tensor(backend, Element(T), shape)
+        ptr = Lib.create_tensor(backend.ptr, Element(T), shape)
 
         A = new{T,N}(ptr)
         # Check if the node have any data attached to it. If so, copy it into the tensor
@@ -178,10 +192,10 @@ function Tensor(backend, v::AbstractArray{T,N}) where {T,N}
 end
 
 function Base.size(t::Tensor{T,N}) where {T,N}
-    shape = Lib.get_shape(t.ptr)
+    shape = Shape(t.ptr)
     @assert N == length(shape)
 
-    return reverse(ntuple(i -> shape[i], N))
+    return ntuple(i -> shape[i], N)
 end
 
 function Base.getindex(t::Tensor{T,N}, i) where {T,N} 
@@ -230,8 +244,8 @@ end
 ##### Nodes
 #####
 
-NodeVector(x::Node, args::Node...) = NodeVector((x,args...))
-function NodeVector(args)
+NodeVector(x, args...) = NodeVector((x,args...))
+function NodeVector(args::Tuple)
     p = Lib.NodeVector()
     for arg in args
         Lib.push!(p, arg.ptr)

@@ -11,6 +11,45 @@
 
 #include "ngraph/frontend/onnx_import/onnx.hpp"
 
+/////
+///// Struct for wrapping Node vectors
+/////
+
+struct NodeWrapper
+{
+    public:
+        template <class Iter>
+        NodeWrapper(Iter start, Iter stop);
+
+        std::shared_ptr<ngraph::Node> _getindex(int64_t i);
+        int64_t _length();
+    
+    private:
+        std::vector< std::shared_ptr <ngraph::Node> > m_nodes; 
+};
+
+// Implementation
+template <class Iter>
+NodeWrapper::NodeWrapper(Iter start, Iter stop)
+{
+    m_nodes = std::vector< std::shared_ptr<ngraph::Node> >(start, stop);
+}
+
+std::shared_ptr<ngraph::Node> NodeWrapper::_getindex(int64_t i)
+{
+    return m_nodes[i];
+}
+
+int64_t NodeWrapper::_length()
+{
+    return m_nodes.size();
+}
+
+/////
+///// Module Wrapping
+/////
+
+
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 {
     /////
@@ -39,7 +78,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// CoordinateDiff
     /////
     mod.add_type<ngraph::CoordinateDiff>("CoordinateDiff");
-    mod.method("make_coordinatediff", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+    mod.method("CoordinateDiff", [](const jlcxx::ArrayRef<int64_t, 1> vals){
         return ngraph::CoordinateDiff(vals.begin(), vals.end());
     });
 
@@ -47,18 +86,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// Shapes
     /////
     mod.add_type<ngraph::Shape>("Shape");
-    mod.method("make_shape", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+    mod.method("Shape", [](const jlcxx::ArrayRef<int64_t, 1> vals){
         return ngraph::Shape(vals.begin(), vals.end());
     });
     // Methods to facilitate instantiating a shape in Julia
-    mod.method("shape_length", [](const ngraph::Shape s){return (int64_t) s.size();});
-    mod.method("shape_getindex", [](const ngraph::Shape s, int64_t i){return (int64_t) s[i];});
+    mod.method("_length", [](const ngraph::Shape s){return (int64_t) s.size();});
+    mod.method("_getindex", [](const ngraph::Shape s, int64_t i){return (int64_t) s[i];});
 
     //////
     ////// Strides
     //////
     mod.add_type<ngraph::Strides>("Strides");
-    mod.method("make_strides", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+    mod.method("Strides", [](const jlcxx::ArrayRef<int64_t, 1> vals){
         return ngraph::Strides(vals.begin(), vals.end());
     });
 
@@ -67,7 +106,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// AxisSet
     /////
     mod.add_type<ngraph::AxisSet>("AxisSet"); 
-    mod.method("make_axisset", [](jlcxx::ArrayRef<int64_t, 1> arr){
+    mod.method("AxisSet", [](jlcxx::ArrayRef<int64_t, 1> arr){
         return ngraph::AxisSet(std::set<size_t>(arr.begin(), arr.end()));
     });
 
@@ -75,7 +114,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// AxisVector
     /////
     mod.add_type<ngraph::AxisVector>("AxisVector"); 
-    mod.method("make_axisvector", [](jlcxx::ArrayRef<int64_t, 1> arr){
+    mod.method("AxisVector", [](jlcxx::ArrayRef<int64_t, 1> arr){
         return ngraph::AxisVector(arr.begin(), arr.end());
     });
 
@@ -110,10 +149,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::Node>("Node")
         .method("get_output_size", &ngraph::Node::get_output_size)
         .method("get_output_element_type", &ngraph::Node::get_output_element_type)
-        .method("get_output_shape", &ngraph::Node::get_output_shape);
+        .method("get_output_shape", &ngraph::Node::get_output_shape)
+        .method("get_name", &ngraph::Node::description)
+        .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
         //.method("get_output_tensor", &ngraph::Node::get_output_tensor);
-
-    mod.method("get_user_count", &ngraph::get_user_count);
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
         .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)
@@ -129,6 +168,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         });
 
     /////
+    ///// NodeWrapper
+    /////
+
+    mod.add_type<NodeWrapper>("NodeWrapper")
+        .method("_length", &NodeWrapper::_length)
+        .method("_getindex", &NodeWrapper::_getindex);
+
+    /////
     ///// Function
     /////
     mod.add_type<ngraph::Function>("NFunction");
@@ -137,6 +184,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             const ngraph::ParameterVector& parameters)
     {
         return std::make_shared<ngraph::Function>(nodes, parameters);
+    });
+
+
+    mod.method("get_ordered_ops", [](const std::shared_ptr<ngraph::Function> func)
+    {
+        std::list<std::shared_ptr<ngraph::Node>> node_list = func->get_ordered_ops();
+        return NodeWrapper(node_list.begin(), node_list.end());
     });
 
     /////
@@ -370,8 +424,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
         .method("create", &ngraph::runtime::Backend::create)
-        .method("compile", &ngraph::runtime::Backend::compile)
-        .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function);
+        .method("compile", &ngraph::runtime::Backend::compile);
 
     mod.method("create_tensor", [](
         ngraph::runtime::Backend* backend, 

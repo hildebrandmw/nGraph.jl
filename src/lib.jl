@@ -15,9 +15,6 @@ function __init__()
     @initcxx
 end
 
-# Materialize a nGraph "Shape" as a Julia array
-Base.getindex(x::ShapeRef, i) = shape_getindex(x,i-1)  # defined in c++ code
-Base.length(x::ShapeRef) = shape_length(x)             # defined in c++ code
-#shape(x::ShapeRef) = [x[i] for i in 0:length(x)-1]
+# Types wrappers forwarded to "types.jl"
 
 end

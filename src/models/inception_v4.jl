@@ -89,9 +89,9 @@ function inception_c(x)
         Conv((1,1), S => 256, relu)
     )(x)
 
-    b = Conv((1,1), S => 256)(x)
+    b = Conv((1,1), S => 256, relu)(x)
 
-    _c = Conv((1,1), S => 384, relu)(x)
+    _c = Conv((1, 1), S => 384, relu)(x)
     c0 = Conv((1, 3), 384 => 256, relu; pad = (0, 1))(_c)
     c1 = Conv((3, 1), 384 => 256, relu; pad = (1, 0))(_c)
 
@@ -174,7 +174,7 @@ end
 
 function inception_v4_inference(batchsize)
     x = rand(Float32, 299, 299, 3, batchsize)
-    backend = Lib.create("CPU")
+    backend = Backend()
     X = Tensor(backend, x)
 
     f = compile(backend, inception_v4, X)
@@ -184,7 +184,7 @@ end
 function inception_v4_training(batchsize)
     x = rand(Float32, 299, 299, 3, batchsize)
     y = rand(Float32, 1000, batchsize)
-    backend = Lib.create("CPU")
+    backend = Backend()
     X = Tensor(backend, x)
     Y = Tensor(backend, y)
 
@@ -192,4 +192,39 @@ function inception_v4_training(batchsize)
 
     g = compile(backend, f, X, Y; optimizer = nGraph.SGD(Float32(0.001)))
     return g, X, Y
+end
+
+#####
+##### Simple Test function
+#####
+
+function mnist(batchsize = 16)
+    model = Chain(
+        # First convolution, operating upon a 28x28 image
+        Conv((3, 3), 1=>16, pad=(1,1), relu),
+        MaxPool((2,2)),
+
+        # Second convolution, operating upon a 14x14 image
+        Conv((3, 3), 16=>32, pad=(1,1), relu),
+        MaxPool((2,2)),
+
+        # Third convolution, operating upon a 7x7 image
+        Conv((3, 3), 32=>32, pad=(1,1), relu),
+        MaxPool((2,2)),
+
+        # Reshape 3d tensor into a 2d one, at this point it should be (3, 3, 32, N)
+        # which is where we get the 288 in the `Dense` layer below:
+        x -> reshape(x, :, size(x, 4)),
+        Dense(288, 10),
+
+        # Finally, softmax to get nice probabilities
+        softmax,
+    )
+
+    backend = Backend()
+    x = rand(Float32, 28, 28, 1, batchsize)
+    X = nGraph.Tensor(backend, x)
+    f = nGraph.compile(backend, model, X)
+
+    return f, X
 end

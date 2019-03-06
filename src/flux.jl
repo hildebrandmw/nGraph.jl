@@ -16,7 +16,7 @@ function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
         cn = NNlib.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
     end
     # Broadcast the bias along the first `N` dimensions and the last
-    axis_set = (N + 2) .- [collect(1:N); N+2]
+    axis_set = (N+2+1) .- [collect(1:N); N+2]
     bb = broadcast(Node(c.bias), size(cn); axes = axis_set)
 
     node =  _getsigma(c).(cn .+ bb)
@@ -84,7 +84,12 @@ astuple(x) = (x,)
 untuple(x::Tuple) = x
 untuple(x::Tuple{T}) where {T} = first(x)
 
-function compile(backend, f, args...; optimizer = Inference())
+"""
+    compile(backend, f, args..; optimizer = Inference()) -> Executable
+
+Trace and compile a Flux model `f` with `args`.
+"""
+function compile(backend::Backend, f, args...; optimizer = Inference())
     ctx = SnoopCtx(metadata = IdDict{Any,Node}())
     # Extract the parameter from all the inputs
     inputs = Node.(args)
@@ -115,7 +120,14 @@ function compile(backend, f, args...; optimizer = Inference())
 
     # Compile the executable
     @info "Compiling Function"
-    ex = Lib.compile(backend, ngraph_function, false)
+    ex = Lib.compile(backend.ptr, ngraph_function, false)
+
+    nodewrapper = Lib.get_ordered_ops(ngraph_function)
+    @show Lib._length(nodewrapper)
+    for i in 1:Lib._length(nodewrapper)
+        n = Lib._getindex(nodewrapper, i-1)
+        @show Lib.get_name(n)
+    end
 
     # Create tensors for the outputs
     tensors = map(x -> Tensor(backend, x), outputs) 
