@@ -17,6 +17,9 @@ end
 function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector)
     ngraph_function = NFunction(outputs, inputs)
     ptr = Lib.compile(backend.ptr, ngraph_function.ptr, false)
+
+    # Get the post-compiled ops for the function.
+    get_ordered_ops!(ngraph_function)
     return Executable(ptr, ngraph_function)
 end
 

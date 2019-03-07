@@ -245,3 +245,11 @@ function mnist_train(batchsize = 16)
     g = nGraph.compile(backend, f, X, Y; optimizer = SGD(Float32(0.001)))
     return g, X, Y
 end
+
+function makeconv(; filter = (3,3), channels = 256, filters = 256)
+    c = Conv(filter, channels => filters)
+    backend = Backend()
+    X = Tensor(backend, rand(Float32, 17, 17, 256, 16))
+    f = compile(backend, c, X)
+    return f, X
+end

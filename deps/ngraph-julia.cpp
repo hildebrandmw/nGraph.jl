@@ -9,6 +9,10 @@
 
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
 
+#include "ngraph/descriptor/layout/tensor_layout.hpp"
+#include "ngraph/runtime/cpu/cpu_layout_descriptor.hpp"
+#include "ngraph/runtime/cpu/op/convert_layout.hpp"
+
 #include "ngraph/frontend/onnx_import/onnx.hpp"
 
 /////
@@ -23,9 +27,9 @@ struct NodeWrapper
 
         std::shared_ptr<ngraph::Node> _getindex(int64_t i);
         int64_t _length();
-    
+
     private:
-        std::vector< std::shared_ptr <ngraph::Node> > m_nodes; 
+        std::vector< std::shared_ptr <ngraph::Node> > m_nodes;
 };
 
 // Implementation
@@ -132,7 +136,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     ///// AxisSet
     /////
-    mod.add_type<ngraph::AxisSet>("AxisSet"); 
+    mod.add_type<ngraph::AxisSet>("AxisSet");
     mod.method("AxisSet", [](jlcxx::ArrayRef<int64_t, 1> arr){
         return ngraph::AxisSet(std::set<size_t>(arr.begin(), arr.end()));
     });
@@ -140,7 +144,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     ///// AxisVector
     /////
-    mod.add_type<ngraph::AxisVector>("AxisVector"); 
+    mod.add_type<ngraph::AxisVector>("AxisVector");
     mod.method("AxisVector", [](jlcxx::ArrayRef<int64_t, 1> arr){
         return ngraph::AxisVector(arr.begin(), arr.end());
     });
@@ -190,7 +194,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_input_element_type", &ngraph::Node::get_input_element_type)
         // Return the shape of input i
         .method("get_input_shape", &ngraph::Node::get_input_shape)
-        ///// Mist
+        .method("get_input_node", [](
+                const std::shared_ptr<ngraph::Node>& node,
+                const int64_t index)
+            {
+                // Node -> Deque of input descriptors -> Input Descriptor -> Output connected to Input -> Node
+                return node->get_inputs().at(index).get_output().get_node();
+            })
+        ///// Misc
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
@@ -299,7 +310,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const ngraph::CoordinateDiff& padding_above)
     {
         auto a = std::make_shared<ngraph::op::Convolution>(
-            data_batch, 
+            data_batch,
             filters,
             window_movement_strides,
             window_dilation_strides,
@@ -328,7 +339,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     mod.method("op_log", [](const std::shared_ptr<ngraph::Node>& arg)
     {
-        auto a = std::make_shared<ngraph::op::Log>(arg); 
+        auto a = std::make_shared<ngraph::op::Log>(arg);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
@@ -426,6 +437,32 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     /////
+    ///// Cpu Ops
+    /////
+
+
+    // The idea here is that we will create a runtime::cpu::ConvertLayout node from `arg`
+    // to the layout of the output of `to`.
+    //
+    // Look to cpu_layout.cpp, `insert_input_conversions` for the source for much of this
+    // code.
+    mod.method("op_cpu_convert_layout_to", [](
+        const std::shared_ptr<ngraph::Node> &arg,
+        const std::shared_ptr<ngraph::Node> &to)
+    {
+        // Get the output tensor from `to`.
+        auto tv = to->get_output_tensor_ptr(); 
+        auto tvl = std::dynamic_pointer_cast<ngraph::runtime::cpu::LayoutDescriptor>(tv->get_tensor_layout());
+
+        // Create a new layout from the tensor
+        auto new_layout = std::make_shared<ngraph::runtime::cpu::LayoutDescriptor>(*tv);
+        new_layout->set_mkldnn_md(tvl->get_mkldnn_md());
+
+        return std::shared_ptr<ngraph::Node>(
+            new ngraph::runtime::cpu::op::ConvertLayout(arg, new_layout));
+    });
+
+    /////
     ///// TensorWrapper
     /////
 
@@ -482,8 +519,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("compile", &ngraph::runtime::Backend::compile);
 
     mod.method("create_tensor", [](
-        ngraph::runtime::Backend* backend, 
-        const ngraph::element::Type& element_type,  
+        ngraph::runtime::Backend* backend,
+        const ngraph::element::Type& element_type,
         const ngraph::Shape& shape)
     {
         return backend->create_tensor(element_type, shape);

@@ -26,7 +26,8 @@ function runner(ex::FluxExecutable)
     for i in 1:length(func)
         # Get a node type from the function
         node = func[i]
-        ProgressMeter.next!(progress_meter)
+        #ProgressMeter.next!(progress_meter)
+        println("Node: $(description(node))")
 
         # Skip List
         in(description(node), skiplist) && continue
@@ -49,10 +50,28 @@ function runner(ex::FluxExecutable)
         else
             # Create input parameters from the new tensors
             node_version_of_tensors = Node.(tensors) 
+
+            # Create conversion nodes from each of the input tensors
+            #
+            # This is really messy with the nGraph Node and julia Node types
+            if description(node) == "ConvertLayout"
+                conversions = node_version_of_tensors
+            else
+                conversions = map(1:get_input_size(node)) do j
+                    param = node_version_of_tensors[j]
+                    input_node = Lib.get_input_node(node.ptr, convert(Int, j)-1)
+
+                    x =  Node(Lib.op_cpu_convert_layout_to(param.ptr, input_node))
+                    @show size(param)
+                    @show size(x)
+                    return x
+                end
+            end
+            
             parameters = ParameterVector(node_version_of_tensors...)
 
             # Copy the node in question, provide it with the new inputs
-            output = copy(node, NodeVector(node_version_of_tensors))
+            output = copy(node, NodeVector(conversions))
 
             # Construct a node vector from the output
             nodes = NodeVector(output)
@@ -63,8 +82,21 @@ function runner(ex::FluxExecutable)
             # Time New function execution
             inputs = TensorWrapper(tensors) 
             outputs = TensorWrapper([Tensor(backend, output)])
+
+            # Check to see if the number of nodes in the executable is greater than
+            # we think it should be.
+            #
+            # Expected number of nodes is:
+            #
+            # Number of Inputs
+            # 1 Inner profiled node
+            # 1 output
+            num_inner_nodes = length(executable.ngraph_function) 
+
+            if num_inner_nodes > length(tensors) + 1 + 1
+                println("Experiencing Inner Kernel Node Growth")
+            end
            
-            executable(inputs, outputs)
 
             time = gettime(executable, inputs, outputs)
             total_time += time
@@ -79,8 +111,8 @@ function runner(ex::FluxExecutable)
 end
 
 function gettime(executable, inputs, outputs)
-    runtime = Second(3)
-    iterations = 1000
+    runtime = Second(5)
+    iterations = 10000
 
     mintime = typemax(Float64)
     starttime = now()
@@ -90,5 +122,6 @@ function gettime(executable, inputs, outputs)
         end
         mintime = min(mintime, time / iterations)
     end
+    @show mintime
     return mintime
 end
