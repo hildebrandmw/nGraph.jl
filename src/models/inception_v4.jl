@@ -198,8 +198,7 @@ end
 ##### Simple Test function
 #####
 
-function mnist(batchsize = 16)
-    model = Chain(
+_mnist() = Chain(
         # First convolution, operating upon a 28x28 image
         Conv((3, 3), 1=>16, pad=(1,1), relu),
         MaxPool((2,2)),
@@ -221,10 +220,28 @@ function mnist(batchsize = 16)
         softmax,
     )
 
+function mnist(batchsize = 16)
+    model = _mnist()
+
     backend = Backend()
     x = rand(Float32, 28, 28, 1, batchsize)
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, model, X)
 
     return f, X
+end
+
+function mnist_train(batchsize = 16)
+    model = _mnist()
+    backend = Backend()
+
+    x = rand(Float32, 28, 28, 1, batchsize)
+    y = rand(Float32, 10, batchsize)
+
+    f(x, y) = Flux.crossentropy(model(x), y)
+    X = Tensor(backend, x)
+    Y = Tensor(backend, y)
+
+    g = nGraph.compile(backend, f, X, Y; optimizer = SGD(Float32(0.001)))
+    return g, X, Y
 end

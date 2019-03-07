@@ -70,19 +70,14 @@ end
 
     model = _googlenet()
 
-    x = rand(Float32, 224, 224, 3, 16)
+    x = rand(Float32, 224, 224, 3, 16) .- Float32(0.5)
 
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, model, X)
 
     z = model(x)
     @test isapprox(z, collect(f(X)))
-
-    #@time model(x)
-    #@time model(x)
-    #@time f(X)
-    #@time f(X)
 
     @info "Compiling Training Pass for Inception"
     y = similar(model(x))

@@ -90,7 +90,7 @@ function Bottleneck(filters::Int, downsample::Bool = false, res_top::Bool = fals
     end
 end
 
-function resnet50()
+function _resnet50()
     local layers = [3, 4, 6, 3]
     local layer_arr = []
 
@@ -120,23 +120,11 @@ function resnet50()
     end
 end
 
-@testset "Testing Resnet" begin
-    f = resnet50()
-    x = rand(Float32, 224, 224, 3, 16)
-    z = f(x)
-
+function resnet50(batchsize = 16)
+    x = rand(Float32, 224, 224, 3, batchsize)
     backend = nGraph.Backend()
-    X = nGraph.Tensor(backend, x)
-    ex = nGraph.compile(backend, f, X)
+    X = Tensor(backend, x)
 
-    @test isapprox(collect(ex(X)), z)
-    @time ex(X)
-    @time ex(X)
-
-    y = similar(z)
-    loss(x,y) = Flux.crossentropy(f(x), y)
-    Y = nGraph.Tensor(backend, y)
-
-    G = nGraph.compile(backend, loss, X, Y)
-    G(X,Y)
+    f = nGraph.compile(backend, _resnet50(), X)
+    return f, X
 end

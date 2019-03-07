@@ -16,7 +16,7 @@ function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
         cn = NNlib.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
     end
     # Broadcast the bias along the first `N` dimensions and the last
-    axis_set = (N+2+1) .- [collect(1:N); N+2]
+    axis_set = [collect(1:N); N+2]
     bb = broadcast(Node(c.bias), size(cn); axes = axis_set)
 
     node =  _getsigma(c).(cn .+ bb)
@@ -28,10 +28,7 @@ _dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
 
 # Extend to unwrap tracked arrays
 function Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N}
-    return Node{T,N}(
-        Lib.op_parameter(Element(T), Shape(size(x))), 
-        "Param", 
-        copy(Flux.data(x))
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), copy(Flux.data(x))
     )
 end
 
@@ -54,7 +51,7 @@ flip_kernel(x) = false
 Cassette.@context SnoopCtx
 
 # Hijack Node constructors from TrackedArrays
-function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x) where {T,N}
+function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Flux.Tracker.TrackedArray) where {T,N}
     return get!(ctx.metadata, x, Cassette.recurse(ctx, f, x))::Node{T,N}
 end
 
@@ -68,21 +65,6 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) =
 Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) = 
     Cassette.overdub(ctx, _conv_impl, f, args...)
 
-#####
-##### Executable
-#####
-
-mutable struct Executable{V,T}
-    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Executable,:St10shared_ptrIiE}
-    outputs::V
-    optimizer::T
-end
-
-astuple(x::Tuple) = x
-astuple(x) = (x,)
-
-untuple(x::Tuple) = x
-untuple(x::Tuple{T}) where {T} = first(x)
 
 """
     compile(backend, f, args..; optimizer = Inference()) -> Executable
@@ -91,17 +73,16 @@ Trace and compile a Flux model `f` with `args`.
 """
 function compile(backend::Backend, f, args...; optimizer = Inference())
     ctx = SnoopCtx(metadata = IdDict{Any,Node}())
+
     # Extract the parameter from all the inputs
     inputs = Node.(args)
 
     # Perform traced execution on the function.
-    @info "Tracing"
     outputs = astuple(Cassette.overdub(ctx, f, inputs...))
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
     params = collect(values(ctx.metadata))
-    @info "Found $(length(params)) params" 
 
     arg_tuple = (
         inputs = inputs,
@@ -109,38 +90,33 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
         params = params,
         _id = ctx.metadata,
     )
-    @info "Creating Optimizer"
     opt, opt_inputs, opt_outputs  = create(optimizer, backend, arg_tuple)
 
-    # Create the formal ngraph function
-    ngraph_function = Lib.make_function(
-        NodeVector(outputs..., opt_outputs...), 
-        ParameterVector(inputs..., opt_inputs...)
-    )
-
     # Compile the executable
-    @info "Compiling Function"
-    ex = Lib.compile(backend.ptr, ngraph_function, false)
-
-    nodewrapper = Lib.get_ordered_ops(ngraph_function)
-    @show Lib._length(nodewrapper)
-    for i in 1:Lib._length(nodewrapper)
-        n = Lib._getindex(nodewrapper, i-1)
-        @show Lib.get_name(n)
-    end
+    ex = compile(
+        backend, 
+        ParameterVector(inputs..., opt_inputs...),
+        NodeVector(outputs..., opt_outputs...)
+    )
 
     # Create tensors for the outputs
     tensors = map(x -> Tensor(backend, x), outputs) 
 
-    return Executable(ex, tensors, opt)
+    return FluxExecutable(ex, opt, tensors)
 end
 
-function (ex::Executable)(args...) 
+struct FluxExecutable{T,V}
+    ex::Executable
+    optimizer::T
+    outputs::V
+end
+
+function (ex::FluxExecutable)(args...)
     inputs = Any[i.ptr for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
     outputs = Any[o.ptr for o in Iterators.flatten((ex.outputs, getoutputs(ex.optimizer)))]
     
     # Since we're passing wrapped type to C++, we have to cast them to Any's
-    Lib.call(ex.ptr, outputs, inputs)
+    ex.ex(inputs, outputs)
 
     update!(ex.optimizer)
 
@@ -250,4 +226,3 @@ getoutputs(S::SGDState) = S.outputs
 
 # Swap
 update!(S::SGDState) = S.inputs, S.outputs = S.outputs, S.inputs
-

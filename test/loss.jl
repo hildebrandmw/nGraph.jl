@@ -5,7 +5,7 @@
 
     z = Flux.crossentropy(x, y)
 
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
     Y = nGraph.Tensor(backend, y)
 

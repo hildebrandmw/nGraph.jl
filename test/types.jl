@@ -61,23 +61,23 @@ end
 end
 
 @testset "Testing AxisSet" begin
-    s = nGraph.AxisSet([1,2,3])
+    s = nGraph.AxisSet([1,2,3], 3)
     @test isa(s, nGraph.AxisSet)
 
-    s = nGraph.AxisSet((1,2,3))
+    s = nGraph.AxisSet((1,2,3), 4)
     @test isa(s, nGraph.AxisSet)
 
-    s = nGraph.AxisSet(1)
+    s = nGraph.AxisSet(1, 3)
     @test isa(s, nGraph.AxisSet)
 end
 
 @testset "Testing AxisVector" begin
-    s = nGraph.AxisVector([1,2,3])
+    s = nGraph.AxisVector([1,2,3], 3)
     @test isa(s, nGraph.AxisVector)
 
-    s = nGraph.AxisVector((1,2,3))
+    s = nGraph.AxisVector((1,2,3), 5)
     @test isa(s, nGraph.AxisVector)
 
-    s = nGraph.AxisVector(1)
+    s = nGraph.AxisVector(1, 1)
     @test isa(s, nGraph.AxisVector)
 end

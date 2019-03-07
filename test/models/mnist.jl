@@ -21,7 +21,7 @@
         softmax,
     )
 
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
     x = rand(Float32, 28, 28, 1, 100)
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, model, X)

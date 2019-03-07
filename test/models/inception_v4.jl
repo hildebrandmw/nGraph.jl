@@ -1,11 +1,10 @@
-
 @testset "Testing Inception" begin
     batchsize = 16
     x = rand(Float32, 299, 299, 3, batchsize)
 
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
-    f = nGraph.compile(backend, inception_v4, X)
+    f = nGraph.compile(backend, nGraph.inception_v4, X)
 
     @show size(f(X))
 
@@ -13,7 +12,7 @@
         @time f(X)
     end
 
-    f(x,y) = Flux.crossentropy(inception_v4(x), y)
+    f(x,y) = Flux.crossentropy(nGraph.inception_v4(x), y)
 
     y = rand(Float32, 1000, batchsize)
     Y = nGraph.Tensor(backend, y)

@@ -10,7 +10,7 @@ using Flux
 end
 
 @testset "Reshape" begin
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
 
     x = rand(Float32, 100)
     X = nGraph.Node(x)
@@ -38,7 +38,7 @@ end
 end
 
 @testset "Softmax" begin
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
 
     # 1D case
     x = rand(Float32, 100)

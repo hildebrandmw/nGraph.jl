@@ -10,7 +10,7 @@ end
     f = Quadratic(P)
 
     x = Float32[1.0, 2.0, 3.0]
-    backend = nGraph.Lib.create("CPU")
+    backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
 
     learning_rate = Float32(0.2)

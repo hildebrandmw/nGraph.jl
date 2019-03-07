@@ -46,6 +46,33 @@ int64_t NodeWrapper::_length()
 }
 
 /////
+///// Struct for wrapping std::vector of Tensors
+/////
+
+struct TensorWrapper
+{
+    public:
+        TensorWrapper(const jlcxx::ArrayRef<jl_value_t*, 1>& tensors);
+        const std::vector<std::shared_ptr<ngraph::runtime::Tensor>> tensors() const { return m_tensors; };
+
+    private:
+        std::vector<std::shared_ptr<ngraph::runtime::Tensor>> m_tensors;
+};
+
+// Implementation
+TensorWrapper::TensorWrapper(const jlcxx::ArrayRef<jl_value_t*, 1>& tensors)
+{
+    std::vector<std::shared_ptr<ngraph::runtime::Tensor>> tensor_vector = {};
+    for (auto tensor: tensors)
+    {
+        tensor_vector.push_back(
+            *jlcxx::unbox_wrapped_ptr<std::shared_ptr<ngraph::runtime::Tensor>>(tensor));
+    }
+    m_tensors = tensor_vector;
+}
+
+
+/////
 ///// Module Wrapping
 /////
 
@@ -147,12 +174,24 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// Node
     /////
     mod.add_type<ngraph::Node>("Node")
+        .method("get_name", &ngraph::Node::get_name)
+        .method("description", &ngraph::Node::description)
+        ///// Outputs
+        // Return the number of outputs for the op
         .method("get_output_size", &ngraph::Node::get_output_size)
+        // Return the element type for output i
         .method("get_output_element_type", &ngraph::Node::get_output_element_type)
+        // Return the shape of output i
         .method("get_output_shape", &ngraph::Node::get_output_shape)
-        .method("get_name", &ngraph::Node::description)
+        ///// Inputs
+        // Return the number of inputs for the op
+        .method("get_input_size", &ngraph::Node::get_input_size)
+        // Return the element type of input i
+        .method("get_input_element_type", &ngraph::Node::get_input_element_type)
+        // Return the shape of input i
+        .method("get_input_shape", &ngraph::Node::get_input_shape)
+        ///// Mist
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
-        //.method("get_output_tensor", &ngraph::Node::get_output_tensor);
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
         .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)
@@ -387,6 +426,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     /////
+    ///// TensorWrapper
+    /////
+
+    mod.add_type<TensorWrapper>("TensorWrapper")
+        .constructor<const jlcxx::ArrayRef<jl_value_t*,1>&>();
+
+    /////
     ///// Executable
     /////
     mod.add_type<ngraph::runtime::Executable>("Executable")
@@ -413,7 +459,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
                 executable->call(outputs, inputs);
             }
+        )
+        .method("call", [](
+                const std::shared_ptr<ngraph::runtime::Executable> executable,
+                const TensorWrapper outputs,
+                const TensorWrapper inputs)
+            {
+                executable->call(outputs.tensors(), inputs.tensors());
+            }
         );
+
 
 
    // Onnx models

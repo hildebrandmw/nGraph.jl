@@ -7,7 +7,7 @@
     C = Conv(Flux.param(w), param(b))
     expected = C(x)
 
-    backend = nGraph.Lib.create("CPU") 
+    backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, C, X)
 
@@ -31,7 +31,7 @@ end
     expected = m(x)
 
     # nGraph compile
-    backend = nGraph.Lib.create("CPU") 
+    backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, m, X)
     Z = f(X)

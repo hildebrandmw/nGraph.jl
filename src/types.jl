@@ -68,10 +68,11 @@ Strides(x::Tuple) = Strides(collect(x))
 
 const AxisSet = Lib.AxisSetAllocated
 
-# Subtract 1 for index 0 to index 1 alignment
-AxisSet(x::Vector) = Lib.AxisSet(x .- 1)
-AxisSet(x::Tuple) = AxisSet(collect(x))
-AxisSet(x) = AxisSet([x])
+# Take second `n` argument to do the axis reversal. Also convert from 1 based indexing
+# to zero based indexing.
+AxisSet(x::Vector, n) = Lib.AxisSet(n .- x)
+AxisSet(x::Union{Tuple, AbstractRange}, n) = AxisSet(collect(x), n)
+AxisSet(x, n) = AxisSet([x], n)
 
 #####
 ##### AxisVector
@@ -79,24 +80,21 @@ AxisSet(x) = AxisSet([x])
 
 const AxisVector = Lib.AxisVectorAllocated
 
-# Subtract 1 for index 1 to index 0 alignment
-AxisVector(x::Vector) = Lib.AxisVector(x .- 1)
-AxisVector(x::Tuple) = AxisVector(collect(x))
-AxisVector(x) = AxisVector([x])
+# Convert from col major to row major ordering - make sure to reverse the input array
+# to preserve the ordering semantics.
+AxisVector(x::Vector, n) = Lib.AxisVector(n .- reverse(x))
+AxisVector(x::Union{Tuple, AbstractRange}, n) = AxisVector(collect(x), n)
+AxisVector(x, n) = AxisVector([x], n)
 
 #####
 ##### Backend
 #####
 
 struct Backend
-    ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
 end
 
 Backend(str::String = "CPU") = Backend(Lib.create(str))
-
-#####
-##### NFunction
-#####
 
 
 #####
@@ -106,23 +104,26 @@ Backend(str::String = "CPU") = Backend(Lib.create(str))
 struct Node{T,N} <: AbstractArray{T, N}
     # CxxWrap std::shared_ptr to the actual backing node
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node,:St10shared_ptrIiE}
-    op::String
     # Optional data if the node was created from an array
     data::AbstractArray
 end
 
-Node{T,N}(ptr, op, parents::Node...) where {T,N} = Node{T,N}(ptr, op, T[])
+function Node(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node})
+    # Get the element type and shape from the node.
+    N = length(Lib.get_output_shape(ptr, zero(UInt64)))    
+    T = back(Lib.get_output_element_type(ptr, zero(UInt64)))
+    return Node{T,N}(ptr)
+end
 
-Node{T,N}(ptr, op) where {T,N} = Node{T,N}(ptr, op, T[])
+Node{T,N}(ptr) where {T,N} = Node{T,N}(ptr, T[])
 
 Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
 function Node{T,N}(x::AbstractArray{T,N}) where {T,N}
-    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), "Param", copy(x))
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), copy(x))
 end
 
-
 function Node{T}(x::T) where {T}
-    Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]), "Constant")
+    Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
 end
 
 Node(x::Node) = x
@@ -139,12 +140,21 @@ end
 name(N::Node) = Lib.get_name(N.ptr)
 description(N::Node) = Lib.description(N.ptr)
 
+# Output sizes etc. are dealt with in the node's type signature.
+# Here, we deal with inputs
+get_input_size(N::Node) = Lib.get_input_size(N.ptr)
+get_input_element_type(N::Node, i) = back(Lib.get_input_element_type(N.ptr, convert(UInt, i-1)))
+function get_input_shape(N::Node, i)
+    shape = Lib.get_input_shape(N.ptr, convert(UInt, i-1))
+    return ntuple(i -> shape[i], length(shape))
+end
+
 """
-    copy(N::Node, args::NodeVector)
+    copy(node::Node, args::NodeVector)
 
 Construct a copy of `N` with `args` as input arguments.
 """
-Base.copy(N::Node, args) = Lib.copy_with_new_args(N.ptr, args)
+Base.copy(node::Node{T,N}, args) where {T,N} = Node{T,N}(Lib.copy_with_new_args(node.ptr, args))
 
 # Base Methods
 Base.axes(n::Node) = map(Base.OneTo, size(n))
@@ -155,7 +165,7 @@ Base.ndims(n::Node{T,N}) where {T,N} = N
 #####
 
 struct Tensor{T,N} <: AbstractArray{T,N}
-    ptr::CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
 
     function Tensor{T}(::UndefInitializer, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
         shape = Shape(inds)
@@ -226,12 +236,20 @@ Base.IndexStyle(::Tensor) = Base.IndexLinear()
 const Adjoints = Lib.AdjointsAllocated
 
 Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
-backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), "Backprop", x)
+backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), x)
+
+#####
+##### TensorWrapper
+#####
+
+const TensorWrapper = Lib.TensorWrapperAllocated
+TensorWrapper(v::Vector) = Lib.TensorWrapper(Any[i.ptr for i in v])
 
 #####
 ##### Parameters
 #####
 
+const ParameterVector = Union{Lib.ParameterVectorAllocated, Lib.ParameterVectorRef}
 function ParameterVector(args::Node...)
     p = Lib.ParameterVector()
     for arg in args
@@ -244,11 +262,38 @@ end
 ##### Nodes
 #####
 
-NodeVector(x, args...) = NodeVector((x,args...))
-function NodeVector(args::Tuple)
+const NodeVector = Union{Lib.NodeVectorAllocated, Lib.NodeVectorRef}
+
+NodeVector(x, args...) = NodeVector((x, args...))
+function NodeVector(args::Union{Tuple,Vector})
     p = Lib.NodeVector()
     for arg in args
         Lib.push!(p, arg.ptr)
     end
     return p
 end
+
+#####
+##### NFunction
+#####
+
+mutable struct NFunction
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.NFunction,:St10shared_ptrIiE}
+
+    # List of node operations in the function. Represented as a Lib.NodeWrapperAlocated
+    # because this is generated on the C++ side of things and will get cleaned up if we
+    # let it go out of scope.
+    #
+    # TODO: Find a way to make this not happen.
+    ops::Lib.NodeWrapperAllocated
+
+    function NFunction(nodes::Lib.NodeVectorAllocated, params::Lib.ParameterVectorAllocated)
+        ptr = Lib.make_function(nodes, params) 
+        ops = Lib.get_ordered_ops(ptr)
+        return new(ptr, ops)
+    end
+end
+
+get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(f.ptr)
+Base.length(f::NFunction) = Lib._length(f.ops)
+Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
