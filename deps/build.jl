@@ -1,4 +1,11 @@
-using CxxWrap, LibGit2
+using CxxWrap, LibGit2, JSON
+
+# We use the "build.json" file to control various build parameters for nGraph.
+#
+# Expected contents are:
+#
+# "PMDK" -> Bool: Build nGraph with PMDK support
+# "DEBUG" -> Bool: Build DEBUG version of nGraph
 
 #####
 ##### ngraph
@@ -6,17 +13,20 @@ using CxxWrap, LibGit2
 
 # Fetch repo
 url = "https://github.com/darchr/ngraph"
-#branch = "master"
-branch = "mh/persistent-malloc"
+branch = "master"
 
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
+
+# Get build parameters
+parameters = JSON.parsefile(joinpath(@__DIR__, "build.json"))
 
 # build repo
 builddir = joinpath(localdir, "build")
 mkpath(builddir)
 current_dir = pwd()
 
+# nGraph is just generally happier if we build it with clang.
 CC = "clang"
 CXX = "clang++"
 
@@ -24,16 +34,14 @@ cd(builddir)
 cmake_args = [
     "-DNGRAPH_ONNX_IMPORT_ENABLE=TRUE",
     "-DNGRAPH_CODEGEN_ENABLE=TRUE",
-    "-DNGRAPH_PMDK_ENABLE=TRUE",
-    #"-DNGRAPH_DEBUG_ENABLE=TRUE",
-    #"-DNGRAPH_TARGET_ARCH=skylake-avx512",
-    # I was getting segfaults during code generation. Trying to build with clang to see
-    # if that works better (the code generator used by ngraph is llvm based, so they'll 
-    # probably ... hopefully ... be a little more compatible)
     "-DCMAKE_C_COMPILER=$CC",
     "-DCMAKE_CXX_COMPILER=$CXX",
     "-DCMAKE_INSTALL_PREFIX=$(joinpath(@__DIR__, "usr"))",
 ]
+
+# Add additional parameters
+parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
+parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 
 run(`cmake .. $cmake_args`)
 run(`make -j all`)

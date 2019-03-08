@@ -2,6 +2,8 @@ module nGraph
 
 using Flux, Cassette
 import ProgressMeter
+import JSON
+
 using Dates
 
 const SRCDIR = @__DIR__
@@ -11,6 +13,7 @@ const MODELDIR = joinpath(PKGDIR, "models")
 
 import Base: broadcasted
 
+include("build.jl")
 include("lib.jl"); using .Lib
 
 include("types.jl")
