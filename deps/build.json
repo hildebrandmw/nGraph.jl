@@ -1,4 +1,4 @@
 {
-    "PMDK": false,
+    "PMDK": true,
     "DEBUG": false
 }

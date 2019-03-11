@@ -9,8 +9,8 @@ const MODELDIR = joinpath(PKGDIR, "models")
 
 # Library opening
 Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libngraph.so"))
-Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libcpu_backend.so"))
 @wrapmodule(joinpath(DEPSDIR, "libngraph-julia.so"))
+#@wrapmodule(joinpath(DEPSDIR, "usr", "lib", "libngraph.so"))
 
 function __init__()
     @initcxx
