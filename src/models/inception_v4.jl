@@ -150,6 +150,7 @@ function inception_v4(x)
         x = inception_a(x)
     end
     x = inception_ra(x, 192, 224, 256, 384)
+    y = x
 
     for _ in 1:7
         x = inception_b(x)
@@ -165,7 +166,7 @@ function inception_v4(x)
     # dropout
     
     x = reshape(x, :, size(x,4))
-    x = Dense(1536,1000)(x)
+    x = Dense(1536, 1000, relu)(x)
 
     x = softmax(x)
 
@@ -173,7 +174,7 @@ function inception_v4(x)
 end
 
 function inception_v4_inference(batchsize)
-    x = rand(Float32, 299, 299, 3, batchsize)
+    x = rand(Float32, 299, 299, 3, batchsize) .- Float32(0.5)
     backend = Backend()
     X = Tensor(backend, x)
 
@@ -182,12 +183,13 @@ function inception_v4_inference(batchsize)
 end
 
 function inception_v4_training(batchsize)
-    x = rand(Float32, 299, 299, 3, batchsize)
+    x = rand(Float32, 299, 299, 3, batchsize) .- Float32(0.5)
     y = rand(Float32, 1000, batchsize)
     backend = Backend()
     X = Tensor(backend, x)
     Y = Tensor(backend, y)
 
+    # TODO: Bad loss function for now
     f(x, y) = sum(inception_v4(x) .- y)
 
     g = compile(backend, f, X, Y; optimizer = nGraph.SGD(Float32(0.001)))

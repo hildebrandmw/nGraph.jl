@@ -111,6 +111,16 @@ struct FluxExecutable{T,V}
     outputs::V
 end
 
+function recompile(backend::Backend, fex::FluxExecutable)
+    # All of the tensors and nodes we've defined earlier ... should still be valid?
+    #   -- question - what if we change the state of one of the inputs?
+    #  
+    # TODO: I think I need to work on the persistent memory implementation in nGraph to
+    # allow basically anything to be allocated in persistent memory.
+    ex = recompile(backend, fex.ex)
+    return FluxExecutable(ex, fex.optimizer, fex.outputs)
+end
+
 function (ex::FluxExecutable)(args...)
     inputs = Any[i.ptr for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
     outputs = Any[o.ptr for o in Iterators.flatten((ex.outputs, getoutputs(ex.optimizer)))]

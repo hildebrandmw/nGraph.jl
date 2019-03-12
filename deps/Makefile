@@ -8,6 +8,7 @@ CXXFLAGS+= -I$(CXXWRAP_HOME)/include -I$(JULIA_HOME)/include/julia -I$(mkfile_di
 CXXFLAGS+= -I$(mkfile_dir)ngraph/build/mkldnn/include
 # Add this flag to turn off a bunch of unused variable warnings in in libcxxwrap
 CXXFLAGS+= -Wno-unused-variable -Wno-unused-lambda-capture
+CXXFLAGS+= $(DEFINES)
 
 # Linked Libraries:
 #

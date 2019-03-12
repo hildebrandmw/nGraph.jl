@@ -3,6 +3,8 @@
 #include "ngraph/ngraph.hpp"
 #include "ngraph/util.hpp"
 #include "ngraph/function.hpp"
+#include "ngraph/descriptor/tensor.hpp"
+
 #include "ngraph/type/element_type.hpp"
 #include "ngraph/runtime/backend.hpp"
 #include "ngraph/runtime/tensor.hpp"
@@ -177,6 +179,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     ///// Node
     /////
+
+    mod.add_type<ngraph::descriptor::Tensor>("TensorDescriptor");
+
     mod.add_type<ngraph::Node>("Node")
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
@@ -203,6 +208,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             })
         ///// Misc
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
+
+    // Give me a node, I'll give yah a tensor!
+    mod.method("get_output_tensor_ptr", [](const std::shared_ptr<ngraph::Node> node)
+        {
+            return node->get_output_tensor_ptr();
+        });
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
         .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)
@@ -516,7 +527,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
         .method("create", &ngraph::runtime::Backend::create)
-        .method("compile", &ngraph::runtime::Backend::compile);
+        .method("compile", &ngraph::runtime::Backend::compile)
+        .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function);
 
     mod.method("create_tensor", [](
         ngraph::runtime::Backend* backend,
@@ -527,6 +539,27 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
 
+    // PMDK Stuff
+#ifdef NGRAPH_PMDK_ENABLE
+
+    // Query if a tensor is in persistent memory
+    mod.method("is_persistent", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
+    {
+        return tensor->is_persistent();
+    });
+
+    // Mark that a tensor should be placed in persistent memory
+    mod.method("make_persistent", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
+    {
+        tensor->make_persistent();
+    });
+
+    // Mark that a tensor should not be placed in persistent memory
+    mod.method("make_volatile", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
+    {
+        tensor->make_volatile();
+    });
+#endif 
 
     // // PMDK stuff
     // mod.add_type<ngraph::PoolManager>("PoolManager")

@@ -25,3 +25,12 @@ end
 
 (ex::Executable)(inputs::Vector{Any}, outputs::Vector{Any}) = Lib.call(ex.ptr, outputs, inputs)
 (ex::Executable)(inputs::TensorWrapper, outputs::TensorWrapper) = Lib.call(ex.ptr, outputs, inputs)
+
+function recompile(backend::Backend, ex::Executable)
+    # Delete the executable from the backend
+    Lib.remove_compiled_function(backend.ptr, ex.ptr)
+    # Recompile the function 
+    ptr = Lib.compile(backend.ptr, ex.ngraph_function.ptr, false)
+    get_ordered_ops!(ngraph_function)
+    return Executable(ptr, ngraph_function)
+end

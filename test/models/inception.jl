@@ -66,11 +66,11 @@ end
           x -> maxpool(x, (7, 7), stride = (1, 1), pad = (0, 0)),
           x -> reshape(x, :, size(x, 4)),
           #Dropout(0.4),
-          Dense(1024, 1000), softmax)
+          Dense(1024, 1000, relu), softmax)
 
     model = _googlenet()
 
-    x = rand(Float32, 224, 224, 3, 16) .- Float32(0.5)
+    x = rand(Float32, 224, 224, 3, 16)
 
     backend = nGraph.Backend()
     X = nGraph.Tensor(backend, x)
@@ -85,11 +85,6 @@ end
 
     loss(x, y) = sum(model(x) .- y)
     Y = nGraph.Tensor(backend, y)
-    #g = nGraph.compile(backend, loss, X, Y; optimizer = nGraph.SGD(Float32(0.001)))
-
-    #@time g(X,Y)
-    #@time g(X,Y)
-    #@time g(X,Y)
 
     @info "Testing nGraph Gradients"
     h = nGraph.compile(backend, loss, X, Y; optimizer = nGraph.Gradient)

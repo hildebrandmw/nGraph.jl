@@ -58,4 +58,12 @@ println("Building Lib")
 # Path to the CxxWrap dependencies
 cxxhome = dirname(dirname(CxxWrap.jlcxx_path))
 juliahome = dirname(Base.Sys.BINDIR)
-run(`make JULIA_HOME=$juliahome CXXWRAP_HOME=$cxxhome CC=$CC CXX=$CXX -j all `)
+make_args = [
+    "JULIA_HOME=$juliahome",
+    "CXXWRAP_HOME=$cxxhome",
+    "CC=$CC",
+    "CXX=$CXX",
+]
+
+parameters["PMDK"] && push!(make_args, "DEFINES=-DNGRAPH_PMDK_ENABLE=TRUE")
+run(`make $make_args -j all `)
