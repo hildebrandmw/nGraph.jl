@@ -149,6 +149,16 @@ function get_input_shape(N::Node, i)
     return ntuple(i -> shape[i], length(shape))
 end
 
+# Get input and output nodes.
+function get_input(N::Node, i) 
+    node_index_tuple = Lib.get_input_node(N.ptr, convert(Int, i-1))
+    # Increment the index by 1 for the whole 0-based indexing to 1-based indexing thing
+    return (Node(first(node_index_tuple)), last(node_index_tuple) + 1)
+end
+get_inputs(N::Node) = [get_input(N,i) for i in 1:Lib.get_input_size(N.ptr)]
+
+get_output_size(N::Node) = Lib.get_output_size(N.ptr)
+
 """
     copy(node::Node, args::NodeVector)
 
@@ -297,3 +307,4 @@ end
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(f.ptr)
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
+name(f::NFunction) = Lib.get_name(f.ptr)

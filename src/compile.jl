@@ -29,8 +29,12 @@ end
 function recompile(backend::Backend, ex::Executable)
     # Delete the executable from the backend
     Lib.remove_compiled_function(backend.ptr, ex.ptr)
+    # Assume we're working in the same directory as the "cpu_codegen" directory.
+    #
+    # This is a brittle assumption, but lets work with it for now.
+    rm("./cpu_codegen"; recursive = true) 
     # Recompile the function 
     ptr = Lib.compile(backend.ptr, ex.ngraph_function.ptr, false)
-    get_ordered_ops!(ngraph_function)
-    return Executable(ptr, ngraph_function)
+    get_ordered_ops!(ex.ngraph_function)
+    return Executable(ptr, ex.ngraph_function)
 end

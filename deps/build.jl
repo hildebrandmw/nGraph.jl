@@ -22,7 +22,15 @@ ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
 parameters = JSON.parsefile(joinpath(@__DIR__, "build.json"))
 
 # build repo
-builddir = joinpath(localdir, "build")
+#
+# Separate out "debug" and "build" directories since "debug" tends to spam a lot of output
+# and I don't want to have to recompile EVERYTHING each time I switch between the two.
+if parameters["DEBUG"]
+    builddir = joinpath(localdir, "debug")
+else
+    builddir = joinpath(localdir, "build")
+end
+
 mkpath(builddir)
 current_dir = pwd()
 

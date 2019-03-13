@@ -1,4 +1,5 @@
 #include "jlcxx/jlcxx.hpp"
+#include "jlcxx/tuple.hpp"
 
 #include "ngraph/ngraph.hpp"
 #include "ngraph/util.hpp"
@@ -16,6 +17,10 @@
 //#include "ngraph/runtime/cpu/op/convert_layout.hpp"
 
 #include "ngraph/frontend/onnx_import/onnx.hpp"
+
+#ifdef NGRAPH_PMDK_ENABLE
+#include "ngraph/pmem.hpp"
+#endif
 
 /////
 ///// Struct for wrapping Node vectors
@@ -203,16 +208,26 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                 const std::shared_ptr<ngraph::Node>& node,
                 const int64_t index)
             {
-                // Node -> Deque of input descriptors -> Input Descriptor -> Output connected to Input -> Node
-                return node->get_inputs().at(index).get_output().get_node();
+                // Node 
+                // -> Deque of input descriptors 
+                // -> Input Descriptor 
+                // -> Output connected to Input 
+                // -> Node
+                ngraph::descriptor::Output& output = node->get_inputs().at(index).get_output();
+                size_t output_index = output.get_index();
+                auto output_node = output.get_node();
+
+                return std::make_tuple(output_node, output_index);
             })
         ///// Misc
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
 
     // Give me a node, I'll give yah a tensor!
-    mod.method("get_output_tensor_ptr", [](const std::shared_ptr<ngraph::Node> node)
+    mod.method("get_output_tensor_ptr", [](
+            const std::shared_ptr<ngraph::Node> node,
+            int64_t index)
         {
-            return node->get_output_tensor_ptr();
+            return node->get_output_tensor_ptr(index);
         });
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
@@ -239,7 +254,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     ///// Function
     /////
-    mod.add_type<ngraph::Function>("NFunction");
+    mod.add_type<ngraph::Function>("NFunction")
+        .method("get_name", &ngraph::Function::get_name);
+
     mod.method("make_function", [](
             const ngraph::NodeVector& nodes,
             const ngraph::ParameterVector& parameters)
@@ -559,17 +576,21 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         tensor->make_volatile();
     });
+
+    // PMDK stuff
+    mod.add_type<ngraph::pmem::PMEMManager>("PMEMManager")
+        .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
+        .method("create_pool", &ngraph::pmem::PMEMManager::create_pool);
+
+        //.method("setpool", &ngraph::PoolManager::setpool)
+        //.method("createpool", &ngraph::PoolManager::createpool)
+        //.method("openpool", &ngraph::PoolManager::openpool)
+        //.method("closepool", &ngraph::PoolManager::closepool)
+        //.method("enablepmem", &ngraph::PoolManager::enablepmem)
+        //.method("disablepmem", &ngraph::PoolManager::disablepmem)
+        //.method("isenabled", &ngraph::PoolManager::isenabled);
+
 #endif 
 
-    // // PMDK stuff
-    // mod.add_type<ngraph::PoolManager>("PoolManager")
-    //     .method("getinstance", &ngraph::PoolManager::getinstance)
-    //     .method("setpool", &ngraph::PoolManager::setpool)
-    //     .method("createpool", &ngraph::PoolManager::createpool)
-    //     .method("openpool", &ngraph::PoolManager::openpool)
-    //     .method("closepool", &ngraph::PoolManager::closepool)
-    //     .method("enablepmem", &ngraph::PoolManager::enablepmem)
-    //     .method("disablepmem", &ngraph::PoolManager::disablepmem)
-    //     .method("isenabled", &ngraph::PoolManager::isenabled);
 }
 
