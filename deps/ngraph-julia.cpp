@@ -9,6 +9,7 @@
 #include "ngraph/type/element_type.hpp"
 #include "ngraph/runtime/backend.hpp"
 #include "ngraph/runtime/tensor.hpp"
+#include "ngraph/serializer.hpp"
 
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
 
@@ -55,33 +56,6 @@ int64_t NodeWrapper::_length()
 {
     return m_nodes.size();
 }
-
-/////
-///// Struct for wrapping std::vector of Tensors
-/////
-
-struct TensorWrapper
-{
-    public:
-        TensorWrapper(const jlcxx::ArrayRef<jl_value_t*, 1>& tensors);
-        const std::vector<std::shared_ptr<ngraph::runtime::Tensor>> tensors() const { return m_tensors; };
-
-    private:
-        std::vector<std::shared_ptr<ngraph::runtime::Tensor>> m_tensors;
-};
-
-// Implementation
-TensorWrapper::TensorWrapper(const jlcxx::ArrayRef<jl_value_t*, 1>& tensors)
-{
-    std::vector<std::shared_ptr<ngraph::runtime::Tensor>> tensor_vector = {};
-    for (auto tensor: tensors)
-    {
-        tensor_vector.push_back(
-            *jlcxx::unbox_wrapped_ptr<std::shared_ptr<ngraph::runtime::Tensor>>(tensor));
-    }
-    m_tensors = tensor_vector;
-}
-
 
 /////
 ///// Module Wrapping
@@ -230,6 +204,22 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             return node->get_output_tensor_ptr(index);
         });
 
+    // Check if the given output is only connected to a "Result" node.
+    mod.method("output_is_result", [](
+            const std::shared_ptr<ngraph::Node> node,
+            int64_t index)
+        {
+            // Get the set of nodes that use this output
+            const std::set<ngraph::descriptor::Input*>& users = node->get_output_inputs(index);
+
+            // Predicate to check if a node is a Result
+            auto predicate = [](ngraph::descriptor::Input* input)
+            {
+                return input->get_node()->description() == "Result";
+            };
+            return std::all_of(users.begin(), users.end(), predicate);
+        });
+
     mod.add_type<ngraph::NodeVector>("NodeVector")
         .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)
         {
@@ -263,7 +253,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         return std::make_shared<ngraph::Function>(nodes, parameters);
     });
-
 
     mod.method("get_ordered_ops", [](const std::shared_ptr<ngraph::Function> func)
     {
@@ -465,39 +454,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     /////
-    ///// Cpu Ops
-    /////
-
-
-    // The idea here is that we will create a runtime::cpu::ConvertLayout node from `arg`
-    // to the layout of the output of `to`.
-    //
-    // Look to cpu_layout.cpp, `insert_input_conversions` for the source for much of this
-    // code.
-    //mod.method("op_cpu_convert_layout_to", [](
-    //    const std::shared_ptr<ngraph::Node> &arg,
-    //    const std::shared_ptr<ngraph::Node> &to)
-    //{
-    //    // Get the output tensor from `to`.
-    //    auto tv = to->get_output_tensor_ptr(); 
-    //    auto tvl = std::dynamic_pointer_cast<ngraph::runtime::cpu::LayoutDescriptor>(tv->get_tensor_layout());
-
-    //    // Create a new layout from the tensor
-    //    auto new_layout = std::make_shared<ngraph::runtime::cpu::LayoutDescriptor>(*tv);
-    //    new_layout->set_mkldnn_md(tvl->get_mkldnn_md());
-
-    //    return std::shared_ptr<ngraph::Node>(
-    //        new ngraph::runtime::cpu::op::ConvertLayout(arg, new_layout));
-    //});
-
-    /////
-    ///// TensorWrapper
-    /////
-
-    mod.add_type<TensorWrapper>("TensorWrapper")
-        .constructor<const jlcxx::ArrayRef<jl_value_t*,1>&>();
-
-    /////
     ///// Executable
     /////
     mod.add_type<ngraph::runtime::Executable>("Executable")
@@ -524,22 +480,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
                 executable->call(outputs, inputs);
             }
-        )
-        .method("call", [](
-                const std::shared_ptr<ngraph::runtime::Executable> executable,
-                const TensorWrapper outputs,
-                const TensorWrapper inputs)
-            {
-                executable->call(outputs.tensors(), inputs.tensors());
-            }
         );
-
-
-
-   // Onnx models
-    mod.method("import_onnx_model", [](std::string file){
-        return ngraph::onnx_import::import_onnx_model(file);
-    });
 
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
@@ -553,6 +494,22 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const ngraph::Shape& shape)
     {
         return backend->create_tensor(element_type, shape);
+    });
+
+    /////
+    ///// Serialization and Deserialization
+    /////
+
+    mod.method("serialize_graph", [](
+        std::string path, 
+        std::shared_ptr<ngraph::Function> func)
+    {
+        ngraph::serialize(path, func, 4);  
+    });
+
+    mod.method("deserialize_graph", [](std::string path)
+    {
+        return ngraph::deserialize(path);
     });
 
 

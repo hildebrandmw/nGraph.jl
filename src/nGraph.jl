@@ -24,7 +24,5 @@ include("compile.jl")
 include("flux.jl")
 include("models/inception_v4.jl")
 include("models/resnet.jl")
-include("experiments/runner.jl")
-
 
 end # module

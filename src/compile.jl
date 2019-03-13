@@ -24,7 +24,6 @@ function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector)
 end
 
 (ex::Executable)(inputs::Vector{Any}, outputs::Vector{Any}) = Lib.call(ex.ptr, outputs, inputs)
-(ex::Executable)(inputs::TensorWrapper, outputs::TensorWrapper) = Lib.call(ex.ptr, outputs, inputs)
 
 function recompile(backend::Backend, ex::Executable)
     # Delete the executable from the backend

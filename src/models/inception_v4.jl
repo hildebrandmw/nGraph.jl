@@ -182,7 +182,7 @@ function inception_v4_inference(batchsize)
     return f, X
 end
 
-function inception_v4_training(batchsize)
+function inception_v4_training(batchsize; kw...)
     x = rand(Float32, 299, 299, 3, batchsize) .- Float32(0.5)
     y = rand(Float32, 1000, batchsize)
     backend = Backend()
@@ -192,7 +192,7 @@ function inception_v4_training(batchsize)
     # TODO: Bad loss function for now
     f(x, y) = sum(inception_v4(x) .- y)
 
-    g = compile(backend, f, X, Y; optimizer = nGraph.SGD(Float32(0.001)))
+    g = compile(backend, f, X, Y; optimizer = nGraph.SGD(Float32(0.001)), kw...)
     return g, X, Y
 end
 
@@ -245,7 +245,7 @@ function mnist_train(batchsize = 16)
     Y = Tensor(backend, y)
 
     g = nGraph.compile(backend, f, X, Y; optimizer = SGD(Float32(0.001)))
-    return g, X, Y
+    return g, (X, Y)
 end
 
 function makeconv(; filter = (3,3), channels = 256, filters = 256)

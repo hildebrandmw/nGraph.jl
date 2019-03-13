@@ -249,13 +249,6 @@ Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
 backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), x)
 
 #####
-##### TensorWrapper
-#####
-
-const TensorWrapper = Lib.TensorWrapperAllocated
-TensorWrapper(v::Vector) = Lib.TensorWrapper(Any[i.ptr for i in v])
-
-#####
 ##### Parameters
 #####
 
@@ -302,9 +295,16 @@ mutable struct NFunction
         ops = Lib.get_ordered_ops(ptr)
         return new(ptr, ops)
     end
+
+    function NFunction(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.NFunction,:St10shared_ptrIiE})
+        ops = Lib.get_ordered_ops(ptr)
+        return new(ptr, ops)
+    end
 end
 
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(f.ptr)
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
 name(f::NFunction) = Lib.get_name(f.ptr)
+
+Base.iterate(f::NFunction, s = 1) = (s <= length(f)) ? (f[s], s+1) : nothing
