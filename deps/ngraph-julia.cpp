@@ -33,6 +33,8 @@ struct NodeWrapper
         template <class Iter>
         NodeWrapper(Iter start, Iter stop);
 
+        NodeWrapper(std::vector <std::shared_ptr <ngraph::Node> > nodes);
+
         std::shared_ptr<ngraph::Node> _getindex(int64_t i);
         int64_t _length();
 
@@ -45,6 +47,11 @@ template <class Iter>
 NodeWrapper::NodeWrapper(Iter start, Iter stop)
 {
     m_nodes = std::vector< std::shared_ptr<ngraph::Node> >(start, stop);
+}
+
+NodeWrapper::NodeWrapper(std::vector<std::shared_ptr<ngraph::Node>> nodes)
+{
+    m_nodes = nodes;
 }
 
 std::shared_ptr<ngraph::Node> NodeWrapper::_getindex(int64_t i)
@@ -182,17 +189,29 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                 const std::shared_ptr<ngraph::Node>& node,
                 const int64_t index)
             {
-                // Node 
-                // -> Deque of input descriptors 
-                // -> Input Descriptor 
-                // -> Output connected to Input 
+                // Node
+                // -> Deque of input descriptors
+                // -> Input Descriptor
+                // -> Output connected to Input
                 // -> Node
                 ngraph::descriptor::Output& output = node->get_inputs().at(index).get_output();
-                size_t output_index = output.get_index();
                 auto output_node = output.get_node();
 
-                return std::make_tuple(output_node, output_index);
+                return output_node;
             })
+
+         .method("get_output_nodes", [](
+                 const std::shared_ptr<ngraph::Node>& node,
+                 const int64_t index)
+             {
+                 std::set<ngraph::descriptor::Input*> output_inputs = node->get_output_inputs(index);
+                 std::vector<std::shared_ptr<ngraph::Node>> nodes;
+                 for (auto input : output_inputs)
+                 {
+                    nodes.push_back(input->get_node());
+                 }
+                 return NodeWrapper(nodes);
+             })
         ///// Misc
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
 
@@ -202,6 +221,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             int64_t index)
         {
             return node->get_output_tensor_ptr(index);
+        });
+
+    mod.method("get_input_tensor_ptr", [](
+            const std::shared_ptr<ngraph::Node> node,
+            int64_t index)
+        {
+            return node->get_inputs().at(index).get_output().get_tensor_ptr();
         });
 
     // Check if the given output is only connected to a "Result" node.
@@ -501,10 +527,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
 
     mod.method("serialize_graph", [](
-        std::string path, 
+        std::string path,
         std::shared_ptr<ngraph::Function> func)
     {
-        ngraph::serialize(path, func, 4);  
+        ngraph::serialize(path, func, 4);
     });
 
     mod.method("deserialize_graph", [](std::string path)
@@ -519,35 +545,26 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // Query if a tensor is in persistent memory
     mod.method("is_persistent", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
     {
-        return tensor->is_persistent();
+        return tensor->get_pool_number() == 1;
     });
 
     // Mark that a tensor should be placed in persistent memory
     mod.method("make_persistent", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
     {
-        tensor->make_persistent();
+        tensor->set_pool_number(1);
     });
 
     // Mark that a tensor should not be placed in persistent memory
     mod.method("make_volatile", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
     {
-        tensor->make_volatile();
+        tensor->set_pool_number(0);
     });
 
     // PMDK stuff
     mod.add_type<ngraph::pmem::PMEMManager>("PMEMManager")
         .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
         .method("create_pool", &ngraph::pmem::PMEMManager::create_pool);
-
-        //.method("setpool", &ngraph::PoolManager::setpool)
-        //.method("createpool", &ngraph::PoolManager::createpool)
-        //.method("openpool", &ngraph::PoolManager::openpool)
-        //.method("closepool", &ngraph::PoolManager::closepool)
-        //.method("enablepmem", &ngraph::PoolManager::enablepmem)
-        //.method("disablepmem", &ngraph::PoolManager::disablepmem)
-        //.method("isenabled", &ngraph::PoolManager::isenabled);
-
-#endif 
+#endif
 
 }
 

@@ -150,14 +150,13 @@ function get_input_shape(N::Node, i)
 end
 
 # Get input and output nodes.
-function get_input(N::Node, i) 
-    node_index_tuple = Lib.get_input_node(N.ptr, convert(Int, i-1))
-    # Increment the index by 1 for the whole 0-based indexing to 1-based indexing thing
-    return (Node(first(node_index_tuple)), last(node_index_tuple) + 1)
-end
+get_input(N::Node, i) = Node(Lib.get_input_node(N.ptr, convert(Int, i-1)))
 get_inputs(N::Node) = [get_input(N,i) for i in 1:Lib.get_input_size(N.ptr)]
 
 get_output_size(N::Node) = Lib.get_output_size(N.ptr)
+
+get_output(N::Node, i) = Lib.get_output_nodes(N.ptr, convert(Int, i-1))
+get_outputs(N::Node) = [get_output(N, i) for i in 1:Lib.get_output_size(N.ptr)]
 
 """
     copy(node::Node, args::NodeVector)
@@ -169,6 +168,27 @@ Base.copy(node::Node{T,N}, args) where {T,N} = Node{T,N}(Lib.copy_with_new_args(
 # Base Methods
 Base.axes(n::Node) = map(Base.OneTo, size(n))
 Base.ndims(n::Node{T,N}) where {T,N} = N
+
+# Get TensorDescriptors
+output_descriptor(N::Node, i) = Lib.get_output_tensor_ptr(N.ptr, convert(Int, i-1))
+input_descriptor(N::Node, i) = Lib.get_input_tensor_ptr(N.ptr, convert(Int, i-1))
+
+#####
+##### TensorDescriptor
+#####
+
+const TensorDescriptor = 
+    Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.TensorDescriptor,:St10shared_ptrIiE}
+
+function Base.show(io::IO, T::TensorDescriptor) 
+    println(io, "Tensor Descriptor")
+    println(io, "    Ptr Address: $(T.ptr)")
+    println(io, "    Is Persistent: $(is_persistent(T))")
+end
+
+make_persistent(T::TensorDescriptor) = Lib.make_persistent(T)
+make_volatile(T::TensorDescriptor) = Lib.make_volatile(T)
+is_persistent(T::TensorDescriptor) = Lib.is_persistent(T)
 
 #####
 ##### Tensor
@@ -279,6 +299,12 @@ end
 #####
 ##### NFunction
 #####
+
+const NodeWrapper = Lib.NodeWrapperAllocated
+
+Base.length(n::NodeWrapper) = Lib._length(n)
+Base.getindex(n::NodeWrapper, i) = Node(Lib._getindex(n, convert(Int, i-1)))
+Base.iterate(n::NodeWrapper, s = 1) = (s > length(n)) ? nothing : (n[s], s+1)
 
 mutable struct NFunction
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.NFunction,:St10shared_ptrIiE}
