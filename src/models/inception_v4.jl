@@ -179,7 +179,7 @@ function inception_v4_inference(batchsize)
     X = Tensor(backend, x)
 
     f = compile(backend, inception_v4, X)
-    return f, X
+    return f, (X,)
 end
 
 function inception_v4_training(batchsize; kw...)
@@ -193,7 +193,7 @@ function inception_v4_training(batchsize; kw...)
     f(x, y) = sum(inception_v4(x) .- y)
 
     g = compile(backend, f, X, Y; optimizer = nGraph.SGD(Float32(0.001)), kw...)
-    return g, X, Y
+    return g, (X, Y)
 end
 
 #####
