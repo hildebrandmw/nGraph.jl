@@ -13,7 +13,7 @@ using CxxWrap, LibGit2, JSON
 
 # Fetch repo
 url = "https://github.com/darchr/ngraph"
-branch = "master"
+branch = "mh/pmem"
 
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
@@ -52,7 +52,7 @@ parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
 parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 
 run(`cmake .. $cmake_args`)
-run(`make -j all`)
+run(`make -j 15`)
 run(`make install`)
 
 cd(current_dir)
