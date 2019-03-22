@@ -133,14 +133,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// descriptor::Tensor
     mod.add_type<ngraph::descriptor::Tensor>("DescriptorTensor")
         .method("_sizeof", &ngraph::descriptor::Tensor::size)
-        .method("get_name", &ngraph::descriptor::Tensor::get_name);
+        .method("get_name", &ngraph::descriptor::Tensor::get_name)
+        .method("set_pool_offset", &ngraph::descriptor::Tensor::set_pool_offset);
 
     ///// runtime::Tensor
     mod.add_type<ngraph::runtime::Tensor>("RuntimeTensor")
         .method("get_shape", &ngraph::runtime::Tensor::get_shape);
 
 
-    // Read/write wrappers for tensorw
+    // Read/write wrappers for tensor
     mod.method("tensor_write", [](
         std::shared_ptr<ngraph::runtime::Tensor> tensor,
         void* p,

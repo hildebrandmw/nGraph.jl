@@ -222,6 +222,9 @@ is_persistent(T::TensorDescriptor) = Lib.is_persistent(T.ptr)
 Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(T.ptr))
 get_name(T::TensorDescriptor) = Lib.get_name(T.ptr)
 
+# Set pool offsets back to zero
+reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(T.ptr, convert(UInt, 0))
+
 #####
 ##### Tensor
 #####
