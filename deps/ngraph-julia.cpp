@@ -16,6 +16,7 @@
 //#include "ngraph/descriptor/layout/tensor_layout.hpp"
 //#include "ngraph/runtime/cpu/cpu_layout_descriptor.hpp"
 //#include "ngraph/runtime/cpu/op/convert_layout.hpp"
+#include "ngraph/runtime/cpu/cpu_backend.hpp"
 
 #include "ngraph/frontend/onnx_import/onnx.hpp"
 
@@ -72,8 +73,28 @@ int64_t NodeWrapper::_length()
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 {
     /////
-    ///// Elements
+    ///// nGraph Types
     /////
+
+    ///// AxisSet
+    mod.add_type<ngraph::AxisSet>("AxisSet");
+    mod.method("AxisSet", [](jlcxx::ArrayRef<int64_t, 1> arr){
+        return ngraph::AxisSet(std::set<size_t>(arr.begin(), arr.end()));
+    });
+
+    ///// AxisVector
+    mod.add_type<ngraph::AxisVector>("AxisVector");
+    mod.method("AxisVector", [](jlcxx::ArrayRef<int64_t, 1> arr){
+        return ngraph::AxisVector(arr.begin(), arr.end());
+    });
+
+    ///// CoordinateDiff
+    mod.add_type<ngraph::CoordinateDiff>("CoordinateDiff");
+    mod.method("CoordinateDiff", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+        return ngraph::CoordinateDiff(vals.begin(), vals.end());
+    });
+
+    ///// Elements
     mod.add_type<ngraph::element::Type>("NGraphType")
         .method("c_type_name", &ngraph::element::Type::c_type_string);
 
@@ -93,17 +114,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         else{return &ngraph::element::dynamic;}
     });
 
-    /////
-    ///// CoordinateDiff
-    /////
-    mod.add_type<ngraph::CoordinateDiff>("CoordinateDiff");
-    mod.method("CoordinateDiff", [](const jlcxx::ArrayRef<int64_t, 1> vals){
-        return ngraph::CoordinateDiff(vals.begin(), vals.end());
-    });
 
-    /////
     ///// Shapes
-    /////
     mod.add_type<ngraph::Shape>("Shape");
     mod.method("Shape", [](const jlcxx::ArrayRef<int64_t, 1> vals){
         return ngraph::Shape(vals.begin(), vals.end());
@@ -112,36 +124,21 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.method("_length", [](const ngraph::Shape s){return (int64_t) s.size();});
     mod.method("_getindex", [](const ngraph::Shape s, int64_t i){return (int64_t) s[i];});
 
-    //////
     ////// Strides
-    //////
     mod.add_type<ngraph::Strides>("Strides");
     mod.method("Strides", [](const jlcxx::ArrayRef<int64_t, 1> vals){
         return ngraph::Strides(vals.begin(), vals.end());
     });
 
+    ///// descriptor::Tensor
+    mod.add_type<ngraph::descriptor::Tensor>("DescriptorTensor")
+        .method("_sizeof", &ngraph::descriptor::Tensor::size)
+        .method("get_name", &ngraph::descriptor::Tensor::get_name);
 
-    /////
-    ///// AxisSet
-    /////
-    mod.add_type<ngraph::AxisSet>("AxisSet");
-    mod.method("AxisSet", [](jlcxx::ArrayRef<int64_t, 1> arr){
-        return ngraph::AxisSet(std::set<size_t>(arr.begin(), arr.end()));
-    });
-
-    /////
-    ///// AxisVector
-    /////
-    mod.add_type<ngraph::AxisVector>("AxisVector");
-    mod.method("AxisVector", [](jlcxx::ArrayRef<int64_t, 1> arr){
-        return ngraph::AxisVector(arr.begin(), arr.end());
-    });
-
-    /////
-    ///// Tensor
-    /////
-    mod.add_type<ngraph::runtime::Tensor>("Tensor")
+    ///// runtime::Tensor
+    mod.add_type<ngraph::runtime::Tensor>("RuntimeTensor")
         .method("get_shape", &ngraph::runtime::Tensor::get_shape);
+
 
     // Read/write wrappers for tensorw
     mod.method("tensor_write", [](
@@ -162,12 +159,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         tensor->read(p, offset, n);
     });
 
-    /////
     ///// Node
-    /////
-
-    mod.add_type<ngraph::descriptor::Tensor>("TensorDescriptor");
-
     mod.add_type<ngraph::Node>("Node")
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
@@ -211,9 +203,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                     nodes.push_back(input->get_node());
                  }
                  return NodeWrapper(nodes);
-             })
-        ///// Misc
-        .method("copy_with_new_args", &ngraph::Node::copy_with_new_args);
+             });
 
     // Give me a node, I'll give yah a tensor!
     mod.method("get_output_tensor_ptr", [](
@@ -522,22 +512,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return backend->create_tensor(element_type, shape);
     });
 
-    /////
-    ///// Serialization and Deserialization
-    /////
-
-    mod.method("serialize_graph", [](
-        std::string path,
-        std::shared_ptr<ngraph::Function> func)
-    {
-        ngraph::serialize(path, func, 4);
-    });
-
-    mod.method("deserialize_graph", [](std::string path)
-    {
-        return ngraph::deserialize(path);
-    });
-
 
     // PMDK Stuff
 #ifdef NGRAPH_PMDK_ENABLE
@@ -560,10 +534,20 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         tensor->set_pool_number(0);
     });
 
+    mod.method("create_persistent_tensor", [](
+        ngraph::runtime::Backend* backend,
+        const ngraph::element::Type& element_type,
+        const ngraph::Shape& shape)
+    {
+        auto cpu_backend = static_cast<ngraph::runtime::cpu::CPU_Backend*>(backend);
+        return cpu_backend->create_persistent_tensor(element_type, shape);
+    });
+
     // PMDK stuff
     mod.add_type<ngraph::pmem::PMEMManager>("PMEMManager")
         .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
         .method("create_pool", &ngraph::pmem::PMEMManager::create_pool);
+
 #endif
 
 }

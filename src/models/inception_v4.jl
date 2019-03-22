@@ -233,7 +233,8 @@ function mnist(batchsize = 16)
     return f, X
 end
 
-function mnist_train(batchsize = 16)
+# Include an additional modifier to allow modifying the optimizer
+function mnist_train(batchsize = 16, modifier = identity)
     model = _mnist()
     backend = Backend()
 
@@ -244,7 +245,7 @@ function mnist_train(batchsize = 16)
     X = Tensor(backend, x)
     Y = Tensor(backend, y)
 
-    g = nGraph.compile(backend, f, X, Y; optimizer = SGD(Float32(0.001)))
+    g = nGraph.compile(backend, f, X, Y; optimizer = modifier(SGD(Float32(0.001))))
     return g, (X, Y)
 end
 

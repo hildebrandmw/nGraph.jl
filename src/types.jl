@@ -1,3 +1,13 @@
+# Trait if a type defined here is just a pure CxxWrap pointer
+struct IsPointer end
+
+# Trait if type has a field that is a pointer to a CxxWrap pointer
+struct HasPointer end
+
+wraptype(x) = error("No wrap type defined for $(typeof(x))")
+
+
+
 # This is kind of a gross way of mapping Julia types to ngraph types.
 # TODO: Think of a better way of doing this.
 const TYPEMAPS = (
@@ -8,6 +18,7 @@ const TYPEMAPS = (
 )
 
 const Element = Lib.NGraphTypeRef
+wraptype(::Element) = IsPointer()
 
 Element(::Type{T}) where {T} = error("No translation defined for $T")
 for (T,S) in TYPEMAPS
@@ -32,6 +43,7 @@ end
 #####
 
 const CoordinateDiff = Lib.CoordinateDiffAllocated
+wraptype(::CoordinateDiff) = IsPointer()
 
 CoordinateDiff(x::Vector) = Lib.CoordinateDiff(x)
 CoordinateDiff(x::Tuple) = CoordinateDiff(collect(x))
@@ -41,6 +53,7 @@ CoordinateDiff(x::Tuple) = CoordinateDiff(collect(x))
 #####
 
 const Shape = Union{Lib.ShapeAllocated, Lib.ShapeRef}
+wraptype(::Shape) = IsPointer()
 
 # Reverse shape for column major -> row major translation
 Shape(x::Vector)    = Lib.Shape(reverse(x))
@@ -58,6 +71,7 @@ Shape(x::Lib.CxxWrap.SmartPointer) = Lib.get_shape(x)
 #####
 
 const Strides = Lib.StridesAllocated
+wraptype(::Strides) = IsPointer()
 
 Strides(x::Vector) = Lib.Strides(x)
 Strides(x::Tuple) = Strides(collect(x))
@@ -67,6 +81,7 @@ Strides(x::Tuple) = Strides(collect(x))
 #####
 
 const AxisSet = Lib.AxisSetAllocated
+wraptype(::AxisSet) = IsPointer()
 
 # Take second `n` argument to do the axis reversal. Also convert from 1 based indexing
 # to zero based indexing.
@@ -79,6 +94,7 @@ AxisSet(x, n) = AxisSet([x], n)
 #####
 
 const AxisVector = Lib.AxisVectorAllocated
+wraptype(::AxisVector) = IsPointer()
 
 # Convert from col major to row major ordering - make sure to reverse the input array
 # to preserve the ordering semantics.
@@ -93,6 +109,7 @@ AxisVector(x, n) = AxisVector([x], n)
 struct Backend
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
 end
+wraptype(::Backend) = HasPointer()
 
 Backend(str::String = "CPU") = Backend(Lib.create(str))
 
@@ -107,6 +124,7 @@ struct Node{T,N} <: AbstractArray{T, N}
     # Optional data if the node was created from an array
     data::AbstractArray
 end
+wraptype(::Node) = HasPointer()
 
 function Node(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node})
     # Get the element type and shape from the node.
@@ -139,6 +157,7 @@ end
 # Forwards
 name(N::Node) = Lib.get_name(N.ptr)
 description(N::Node) = Lib.description(N.ptr)
+Base.IndexStyle(::Node) = Base.IndexLinear()
 
 # Output sizes etc. are dealt with in the node's type signature.
 # Here, we deal with inputs
@@ -170,32 +189,47 @@ Base.axes(n::Node) = map(Base.OneTo, size(n))
 Base.ndims(n::Node{T,N}) where {T,N} = N
 
 # Get TensorDescriptors
-output_descriptor(N::Node, i) = Lib.get_output_tensor_ptr(N.ptr, convert(Int, i-1))
-input_descriptor(N::Node, i) = Lib.get_input_tensor_ptr(N.ptr, convert(Int, i-1))
+output_descriptor(N::Node, i) = TensorDescriptor(Lib.get_output_tensor_ptr(N.ptr, convert(Int, i-1)))
+output_descriptors(N::Node) = [output_descriptor(N, i) for i in 1:get_output_size(N)]
+
+input_descriptor(N::Node, i) = TensorDescriptor(Lib.get_input_tensor_ptr(N.ptr, convert(Int, i-1)))
+input_descriptors(N::Node) = [input_descriptor(N, i) for i in 1:get_input_size(N)]
+
 
 #####
 ##### TensorDescriptor
 #####
 
-const TensorDescriptor = 
-    Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.TensorDescriptor,:St10shared_ptrIiE}
+struct TensorDescriptor
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.DescriptorTensor,:St10shared_ptrIiE}
+end
+wraptype(::TensorDescriptor) = HasPointer()
+
+# Here, we take advantage (hope) of the unique name for each tensor to get a unique
+# identifies
+Base.:(==)(a::TensorDescriptor, b::TensorDescriptor) = get_name(a) == get_name(b)
+Base.hash(x::TensorDescriptor, h::UInt = UInt(0x10984)) = hash(get_name(x), h)
 
 function Base.show(io::IO, T::TensorDescriptor) 
     println(io, "Tensor Descriptor")
-    println(io, "    Ptr Address: $(T.ptr)")
+    println(io, "    Name: $(get_name(T))")
     println(io, "    Is Persistent: $(is_persistent(T))")
 end
 
-make_persistent(T::TensorDescriptor) = Lib.make_persistent(T)
-make_volatile(T::TensorDescriptor) = Lib.make_volatile(T)
-is_persistent(T::TensorDescriptor) = Lib.is_persistent(T)
+make_persistent(T::TensorDescriptor) = Lib.make_persistent(T.ptr)
+make_volatile(T::TensorDescriptor) = Lib.make_volatile(T.ptr)
+is_persistent(T::TensorDescriptor) = Lib.is_persistent(T.ptr)
+Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(T.ptr))
+get_name(T::TensorDescriptor) = Lib.get_name(T.ptr)
 
 #####
 ##### Tensor
 #####
 
+struct Persistent end
+
 struct Tensor{T,N} <: AbstractArray{T,N}
-    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Tensor,:St10shared_ptrIiE}
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
 
     function Tensor{T}(::UndefInitializer, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
         shape = Shape(inds)
@@ -217,7 +251,17 @@ struct Tensor{T,N} <: AbstractArray{T,N}
         end
         return A
     end
+
+    # TODO: Find a way to break this out
+    function Tensor{T}(::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
+        shape = Shape(inds)
+        element = Element(T)
+        ptr = Lib.create_persistent_tensor(backend.ptr, element, shape)
+
+        return new{T,N}(ptr)
+    end
 end
+wraptype(::Tensor) = HasPointer()
 
 function Tensor(backend, x::T) where {T} 
     t = Tensor{T}(undef, backend)
@@ -228,6 +272,15 @@ end
 function Tensor(backend, v::AbstractArray{T,N}) where {T,N}
     t = Tensor{T}(undef, backend, size(v)...)
     t .= v
+    return t
+end
+
+function PersistentTensor(backend, param::Node{T,N}, copy = false) where {T,N}
+    t = Tensor{T}(Persistent(), backend, size(param)...)
+    if copy
+        @assert size(param.data) == size(param)
+        t .= param.data
+    end
     return t
 end
 
@@ -264,6 +317,7 @@ Base.IndexStyle(::Tensor) = Base.IndexLinear()
 #####
 
 const Adjoints = Lib.AdjointsAllocated
+wraptype(::Adjoints) = IsPointer()
 
 Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
 backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), x)
@@ -273,6 +327,8 @@ backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.pt
 #####
 
 const ParameterVector = Union{Lib.ParameterVectorAllocated, Lib.ParameterVectorRef}
+wraptype(::ParameterVector) = IsPointer()
+
 function ParameterVector(args::Node...)
     p = Lib.ParameterVector()
     for arg in args
@@ -286,6 +342,7 @@ end
 #####
 
 const NodeVector = Union{Lib.NodeVectorAllocated, Lib.NodeVectorRef}
+wraptype(::NodeVector) = IsPointer()
 
 NodeVector(x, args...) = NodeVector((x, args...))
 function NodeVector(args::Union{Tuple,Vector})
@@ -297,10 +354,11 @@ function NodeVector(args::Union{Tuple,Vector})
 end
 
 #####
-##### NFunction
+##### NodeWrapper
 #####
 
 const NodeWrapper = Lib.NodeWrapperAllocated
+wraptype(::NodeWrapper) = IsPointer()
 
 Base.length(n::NodeWrapper) = Lib._length(n)
 Base.getindex(n::NodeWrapper, i) = Node(Lib._getindex(n, convert(Int, i-1)))
@@ -327,6 +385,7 @@ mutable struct NFunction
         return new(ptr, ops)
     end
 end
+wraptype(::NFunction) = HasPointer()
 
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(f.ptr)
 Base.length(f::NFunction) = Lib._length(f.ops)
@@ -334,3 +393,7 @@ Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
 name(f::NFunction) = Lib.get_name(f.ptr)
 
 Base.iterate(f::NFunction, s = 1) = (s <= length(f)) ? (f[s], s+1) : nothing
+
+# Allow reverse iterations
+Base.reverse(f::NFunction) = Iterators.reverse(f)
+Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) = (s == 0) ? nothing : (f.itr[s], s-1)

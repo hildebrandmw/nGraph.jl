@@ -28,8 +28,7 @@ _dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
 
 # Extend to unwrap tracked arrays
 function Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N}
-    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), copy(Flux.data(x))
-    )
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), copy(Flux.data(x)))
 end
 
 # Methods defined to avoid ambiguity
@@ -98,6 +97,9 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
         ParameterVector(inputs..., opt_inputs...),
         NodeVector(outputs..., opt_outputs...)
     )
+
+    # TODO: Need to actually iterate over the result vector since nGraph converts
+    # the NodeVector to a ResultVector
 
     # Create tensors for the outputs
     tensors = map(x -> Tensor(backend, x), outputs) 

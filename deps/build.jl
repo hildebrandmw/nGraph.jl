@@ -52,7 +52,7 @@ parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
 parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 
 run(`cmake .. $cmake_args`)
-run(`make -j 15`)
+run(`make -j all`)
 run(`make install`)
 
 cd(current_dir)
