@@ -298,8 +298,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
 
     mod.add_type<ngraph::autodiff::Adjoints>("Adjoints")
-        .constructor<const ngraph::NodeVector&, const ngraph::NodeVector&>()
-        .method("backprop_node", &ngraph::autodiff::Adjoints::backprop_node);
+        .constructor<const ngraph::NodeVector&, const ngraph::NodeVector&>();
+        //.method("backprop_node", &ngraph::autodiff::Adjoints::backprop_node);
+
+    mod.method("backprop_node", [](
+        ngraph::autodiff::Adjoints& adjoints,
+        const std::shared_ptr<ngraph::Node>& x)
+    {
+        return adjoints.backprop_node(x);
+    });
 
     /////
     ///// Ops
@@ -390,6 +397,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.method("op_log", [](const std::shared_ptr<ngraph::Node>& arg)
     {
         auto a = std::make_shared<ngraph::op::Log>(arg);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_maximum", [](
+        const std::shared_ptr<ngraph::Node> &arg0,
+        const std::shared_ptr<ngraph::Node> &arg1)
+    {
+        auto a = std::make_shared<ngraph::op::Maximum>(arg0, arg1);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 

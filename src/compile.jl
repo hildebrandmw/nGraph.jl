@@ -28,6 +28,7 @@ end
 function recompile(backend::Backend, ex::Executable)
     # Delete the executable from the backend
     Lib.remove_compiled_function(backend.ptr, ex.ptr)
+    GC.gc()
 
     # Assume we're working in the same directory as the "cpu_codegen" directory.
     #

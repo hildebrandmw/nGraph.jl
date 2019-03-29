@@ -89,7 +89,7 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
         params = params,
         _id = ctx.metadata,
     )
-    opt, opt_inputs, opt_outputs  = create(optimizer, backend, arg_tuple)
+    opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
 
     # Compile the executable
     ex = compile(
@@ -217,24 +217,63 @@ end
 mutable struct SGDState
     inputs::Vector
     outputs::Vector
+    #backprops::Vector
+    #delta::Any
+    #output::Any
 end
 
 function create(sgd::SGD, backend, inputs, outputs, params)
+
     # Create a backprop node for each parameter
-    adjoints = Adjoints(first(outputs), -constant(sgd.learning_rate))
-    updates = [n + backprop_node(adjoints, n) for n in params]
+    delta = -constant(sgd.learning_rate) .* first(outputs)
+    adjoints = Adjoints(first(outputs), delta)
+
+    backprop_nodes = [backprop_node(adjoints, n) for n in params]
+    updates = [n + bn for (n, bn) in zip(params, backprop_nodes)]
 
     # Create tensors for the parameters and gradients
     param_tensors = map(x -> Tensor(backend, x), params)
     update_tensors = map(x -> Tensor(backend, x), updates)
+    #backprop_tensors = map(x -> Tensor(backend, x), backprop_nodes)
+    #delta_tensor = Tensor(backend, delta)
+    #output_tensor = Tensor(backend, first(outputs))
 
-    S = SGDState(param_tensors, update_tensors)
+    S = SGDState(
+        param_tensors, 
+        update_tensors, 
+        #backprop_tensors, 
+        #delta_tensor, 
+        #output_tensor
+    )
 
-    return S, params, updates
+    return (
+        S, 
+        params,
+        updates
+        #Iterators.flatten((updates, backprop_nodes, (delta, first(outputs))))
+    )
 end
 
 getinputs(S::SGDState) = S.inputs
+#getoutputs(S::SGDState) = Iterators.flatten((S.outputs, S.backprops, (S.delta, S.output)))
 getoutputs(S::SGDState) = S.outputs
 
 # Swap
-update!(S::SGDState) = S.inputs, S.outputs = S.outputs, S.inputs
+function update!(S::SGDState) 
+    # @show S.delta
+    # @show typeof(S.delta)
+    # @show S.output
+    # @show typeof(S.output)
+
+    # # Print out the average update amount
+    # for b in S.backprops
+    #     println(sum(abs, collect(b)))
+    # end
+    # println()
+    # for (i,o) in zip(S.inputs, S.outputs)
+    #     println(sum(abs, collect(i)))
+    #     println(sum(abs, collect(o)))
+    # end
+
+    (S.inputs, S.outputs) = (S.outputs, S.inputs)
+end

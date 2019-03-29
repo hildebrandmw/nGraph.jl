@@ -142,6 +142,13 @@ Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(a.ptr))
 
 #####
+##### Max
+#####
+
+# The semantics between max and maximum are flipped around beween Julia and nGraph
+Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(a.ptr, b.ptr))
+
+#####
 ##### MaxPool
 #####
 
@@ -183,7 +190,7 @@ Base.:-(a::Node) = negative(a)
 #####
 
 parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
-parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(_element(T), shape(())))
+parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Shape(())))
 parameter(x::Node) = x
 
 #####
