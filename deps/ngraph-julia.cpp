@@ -248,7 +248,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         {
             auto a = std::dynamic_pointer_cast<ngraph::op::Parameter>(parameter);
             params.push_back(a);
+        })
+        .method("_length", [](ngraph::ParameterVector& params)
+        {
+            return params.size();
+        })
+        .method("_getindex", [](ngraph::ParameterVector& params, int64_t i)
+        {
+            return std::dynamic_pointer_cast<ngraph::Node>(params[i]);
         });
+
 
     /////
     ///// NodeWrapper
@@ -262,7 +271,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// Function
     /////
     mod.add_type<ngraph::Function>("NFunction")
-        .method("get_name", &ngraph::Function::get_name);
+        .method("get_name", &ngraph::Function::get_name)
+        .method("get_parameters", &ngraph::Function::get_parameters);
 
     mod.method("make_function", [](
             const ngraph::NodeVector& nodes,
@@ -275,6 +285,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         std::list<std::shared_ptr<ngraph::Node>> node_list = func->get_ordered_ops();
         return NodeWrapper(node_list.begin(), node_list.end());
+    });
+
+    mod.method("get_results", [](const std::shared_ptr<ngraph::Function> func)
+    {
+        ngraph::ResultVector results = func->get_results();
+        return NodeWrapper(results.begin(), results.end());
     });
 
     /////

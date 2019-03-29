@@ -340,6 +340,10 @@ function ParameterVector(args::Node...)
     return p
 end
 
+Base.length(P::ParameterVector) = Lib._length(P)
+Base.getindex(P::ParameterVector, i) = Node(Lib._getindex(P, convert(Int64, i-1)))
+Base.iterate(P, s = 1) = (s > length(P)) ? nothing : (P[s], s+1)
+
 ##### 
 ##### Nodes
 #####
@@ -391,6 +395,9 @@ end
 wraptype(::NFunction) = HasPointer()
 
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(f.ptr)
+get_results(f::NFunction) = Lib.get_results(f.ptr)
+get_parameters(f::NFunction) = Lib.get_parameters(f.ptr)
+
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
 name(f::NFunction) = Lib.get_name(f.ptr)

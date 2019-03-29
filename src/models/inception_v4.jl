@@ -150,7 +150,6 @@ function inception_v4(x)
         x = inception_a(x)
     end
     x = inception_ra(x, 192, 224, 256, 384)
-    y = x
 
     for _ in 1:7
         x = inception_b(x)
