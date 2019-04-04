@@ -4,6 +4,7 @@
 #include "ngraph/ngraph.hpp"
 #include "ngraph/util.hpp"
 #include "ngraph/function.hpp"
+#include "ngraph/descriptor/layout/tensor_layout.hpp"
 #include "ngraph/descriptor/tensor.hpp"
 
 #include "ngraph/type/element_type.hpp"
@@ -11,14 +12,12 @@
 #include "ngraph/runtime/tensor.hpp"
 #include "ngraph/serializer.hpp"
 
+// CPU Related Stuff
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
+#include "ngraph/runtime/cpu/cpu_layout_descriptor.hpp"
+#include "ngraph/runtime/cpu/op/convert_layout.hpp"
 
-//#include "ngraph/descriptor/layout/tensor_layout.hpp"
 //#include "ngraph/runtime/cpu/cpu_layout_descriptor.hpp"
-//#include "ngraph/runtime/cpu/op/convert_layout.hpp"
-#include "ngraph/runtime/cpu/cpu_backend.hpp"
-
-#include "ngraph/frontend/onnx_import/onnx.hpp"
 
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
@@ -164,6 +163,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::Node>("Node")
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
+        .method("copy_with_new_args", &ngraph::Node::copy_with_new_args)
         ///// Outputs
         // Return the number of outputs for the op
         .method("get_output_size", &ngraph::Node::get_output_size)
@@ -544,6 +544,24 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return backend->create_tensor(element_type, shape);
     });
 
+    /////
+    ///// CPU Ops
+    /////
+    
+    mod.method("op_cpu_convert_layout_to", [](
+        const std::shared_ptr<ngraph::Node> &arg,
+        const std::shared_ptr<ngraph::Node> &target,
+        int64_t input_index)
+    {
+        // Get the LayoutDescriptor for `input_index` of `target`.
+        std::shared_ptr <ngraph::descriptor::layout::TensorLayout> layout;
+        layout = target->get_inputs().at(input_index).get_tensor().get_tensor_layout();
+        auto a = std::make_shared<ngraph::runtime::cpu::op::ConvertLayout>(
+            arg,
+            std::dynamic_pointer_cast<ngraph::runtime::cpu::LayoutDescriptor>(layout)
+        );
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
 
     // PMDK Stuff
 #ifdef NGRAPH_PMDK_ENABLE

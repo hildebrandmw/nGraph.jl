@@ -17,7 +17,7 @@ function expand(a::Node{T,M}, b::Node{T,N}) where {T,M,N}
     return a, b
 end
 
-# Define _forward to allow dispatching to alternative implementations of common base 
+# Define _forward to allow dispatching to alternative implementations of common base
 # operations
 _forward(f) = f
 _forward(::typeof(*)) = multiply
@@ -51,9 +51,9 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #####
 
 function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
-    # Convert to nGraph types    
+    # Convert to nGraph types
     window_shape = Shape(shape)
-    strides = Strides(expand(N-2, stride)) 
+    strides = Strides(expand(N-2, stride))
     padding_below = Shape(expand(N-2, pad))
     padding_above = Shape(expand(N-2, pad))
 
@@ -68,7 +68,7 @@ Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
 
 _broadcast_trailing(M,N) = [i for i in (M+1):N]
 function Base.broadcast(
-        a::Node{T,M}, 
+        a::Node{T,M},
         shape::NTuple{N,Int};
         axes = _broadcast_trailing(M,N)
     ) where {T,M,N}
@@ -104,8 +104,8 @@ constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
 #####
 
 function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 1) where {T,N}
-    # Construct the convolution node.  
-    strides = Strides(expand(N-2, stride)) 
+    # Construct the convolution node.
+    strides = Strides(expand(N-2, stride))
     padding = CoordinateDiff(expand(N-2, pad))
     dilations = Strides(expand(N-2, dilation))
 
@@ -153,9 +153,9 @@ Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(a.ptr, b.ptr))
 #####
 
 function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
-    # Convert to nGraph types    
+    # Convert to nGraph types
     window_shape = Shape(shape)
-    strides = Strides(expand(N-2, stride)) 
+    strides = Strides(expand(N-2, stride))
     padding_below = Shape(expand(N-2, pad))
     padding_above = Shape(expand(N-2, pad))
 
@@ -210,7 +210,7 @@ Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(a.ptr))
 ##### Reshape
 #####
 
-# NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon` 
+# NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon`
 # preprocessing for us
 function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
     av = AxisVector(1:N, N)
@@ -243,6 +243,21 @@ Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
 # Default to reducing along all dimensions
 function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
     as = AxisSet(axes, N)
-    node = Lib.op_sum(x.ptr, as) 
+    node = Lib.op_sum(x.ptr, as)
     return Node{T, N - length(axes)}(node)
+end
+
+#######################################################################################
+
+if EXPERIMENTAL
+
+#####
+##### cpu ops
+#####
+
+function convert_layout_to(arg::Node{T,N}, target::Node, index) where {T,N}
+    node = Lib.op_cpu_convert_layout_to(arg.ptr, target.ptr, convert(Int, index-1))
+    return Node{T,N}(node)
+end
+
 end

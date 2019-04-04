@@ -2,7 +2,7 @@
 
 const DEFAULTS = (
     # Build nGraph with PMDK
-    PMDK = false,
+    PMDK = EXPERIMENTAL,
     # Build nGraph in debug mode
     DEBUG = false,
 )

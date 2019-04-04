@@ -40,8 +40,8 @@ CXX = "clang++"
 
 cd(builddir)
 cmake_args = [
-    "-DNGRAPH_ONNX_IMPORT_ENABLE=TRUE",
     "-DNGRAPH_CODEGEN_ENABLE=TRUE",
+    #"-DNGRAPH_TBB_ENABLE=FALSE",
     "-DCMAKE_C_COMPILER=$CC",
     "-DCMAKE_CXX_COMPILER=$CXX",
     "-DCMAKE_INSTALL_PREFIX=$(joinpath(@__DIR__, "usr"))",

@@ -195,6 +195,8 @@ output_descriptors(N::Node) = [output_descriptor(N, i) for i in 1:get_output_siz
 input_descriptor(N::Node, i) = TensorDescriptor(Lib.get_input_tensor_ptr(N.ptr, convert(Int, i-1)))
 input_descriptors(N::Node) = [input_descriptor(N, i) for i in 1:get_input_size(N)]
 
+copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(n.ptr, args))
+copy_with_new_args(n::Node, args::Vector) = copy_with_new_args(n, NodeVector(args))
 
 #####
 ##### TensorDescriptor

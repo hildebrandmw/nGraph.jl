@@ -11,9 +11,9 @@ const MODELDIR = joinpath(PKGDIR, "models")
 #
 # This is a really annoying hack since libpmemobj cannot, by default, find libpmem.
 ENV["LD_LIBRARY_PATH"] = joinpath(DEPSDIR, "usr", "lib")
-#Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libtbb.so.2"))
-#Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libcpu_backend.so"))
-Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libngraph.so"))
+
+const _flags = Libdl.RTLD_LAZY | Libdl.RTLD_DEEPBIND | Libdl.RTLD_GLOBAL
+Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libngraph.so"), _flags)
 
 @wrapmodule(joinpath(DEPSDIR, "libngraph-julia.so"))
 

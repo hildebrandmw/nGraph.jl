@@ -11,6 +11,9 @@ const PKGDIR = dirname(SRCDIR)
 const DEPSDIR = joinpath(PKGDIR, "deps")
 const MODELDIR = joinpath(PKGDIR, "models")
 
+# Enable experimental operations
+const EXPERIMENTAL = true
+
 import Base: broadcasted
 
 include("build.jl")
