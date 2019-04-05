@@ -14,6 +14,7 @@ const TYPEMAPS = (
     Bool => "boolean",
     Float32 => "f32",
     Float64 => "f64",
+    Int32 => "i32",
     Int64 => "i64",
 )
 
@@ -33,9 +34,10 @@ function back(x::Element)
         "char"      => Bool,
         "float"     => Float32,
         "double"    => Float64,
+        "int32_t"   => Int32,
         "int64_t"   => Int64, 
     ])
-    return get(d, str, Any)
+    return d[str]
 end
 
 #####
@@ -197,6 +199,11 @@ input_descriptors(N::Node) = [input_descriptor(N, i) for i in 1:get_input_size(N
 
 copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(n.ptr, args))
 copy_with_new_args(n::Node, args::Vector) = copy_with_new_args(n, NodeVector(args))
+
+is_mkldnn(n::Node) = Lib.node_is_mkldnn_op(n.ptr)
+set_mkldnn(n::Node) = Lib.node_set_mkldnn_op(n.ptr)
+
+splice(source::Node, dest::Node, x::Node) = Lib.insert_new_node_between(source.ptr, dest.ptr, x.ptr)
 
 #####
 ##### TensorDescriptor

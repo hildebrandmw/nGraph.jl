@@ -2,6 +2,8 @@
 #include "jlcxx/tuple.hpp"
 
 #include "ngraph/ngraph.hpp"
+#include "ngraph/op/op.hpp"
+#include "ngraph/graph_util.hpp"
 #include "ngraph/util.hpp"
 #include "ngraph/function.hpp"
 #include "ngraph/descriptor/layout/tensor_layout.hpp"
@@ -14,10 +16,8 @@
 
 // CPU Related Stuff
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
-#include "ngraph/runtime/cpu/cpu_layout_descriptor.hpp"
-#include "ngraph/runtime/cpu/op/convert_layout.hpp"
-
-//#include "ngraph/runtime/cpu/cpu_layout_descriptor.hpp"
+#include "ngraph/runtime/cpu/cpu_op_annotations.hpp"
+#include "ngraph/runtime/cpu/op/move.hpp"
 
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
@@ -394,6 +394,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_get_output_element", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        int64_t n)
+    {
+        auto a = std::make_shared<ngraph::op::GetOutputElement>(arg, n);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_log", [](const std::shared_ptr<ngraph::Node>& arg)
     {
         auto a = std::make_shared<ngraph::op::Log>(arg);
@@ -477,6 +485,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_result", [](const std::shared_ptr<ngraph::Node>& arg)
+    {
+        auto a = std::make_shared<ngraph::op::Result>(arg);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_softmax", [](
         const std::shared_ptr<ngraph::Node>& arg,
         const ngraph::AxisSet& axes)
@@ -515,7 +529,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             {
                 std::vector<std::shared_ptr<ngraph::runtime::Tensor>> inputs = {};
                 std::vector<std::shared_ptr<ngraph::runtime::Tensor>> outputs = {};
-                // TODO: validate this
+
                 for (auto i: jl_outputs)
                     outputs.push_back(
                         *jlcxx::unbox_wrapped_ptr< std::shared_ptr<ngraph::runtime::Tensor> >(i)
@@ -547,21 +561,62 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     ///// CPU Ops
     /////
-    
-    mod.method("op_cpu_convert_layout_to", [](
-        const std::shared_ptr<ngraph::Node> &arg,
-        const std::shared_ptr<ngraph::Node> &target,
-        int64_t input_index)
+
+    //mod.method("op_cpu_convert_layout_to", [](
+    //    const std::shared_ptr<ngraph::Node> &arg,
+    //    const std::shared_ptr<ngraph::Node> &target,
+    //    int64_t input_index)
+    //{
+    //    // Get the LayoutDescriptor for `input_index` of `target`.
+    //    auto a = std::make_shared<ngraph::runtime::cpu::op::ConvertLayout>(
+    //        arg,
+    //        target,
+    //        input_index
+    //    );
+    //    return std::dynamic_pointer_cast<ngraph::Node>(a);
+    //});
+
+    // The following two methods were taken from mkldnn_utils.cpp in the runtime/cpu
+    mod.method("node_is_mkldnn_op", [](const std::shared_ptr<ngraph::Node>& node)
     {
-        // Get the LayoutDescriptor for `input_index` of `target`.
-        std::shared_ptr <ngraph::descriptor::layout::TensorLayout> layout;
-        layout = target->get_inputs().at(input_index).get_tensor().get_tensor_layout();
-        auto a = std::make_shared<ngraph::runtime::cpu::op::ConvertLayout>(
-            arg,
-            std::dynamic_pointer_cast<ngraph::runtime::cpu::LayoutDescriptor>(layout)
-        );
+        auto op_annotations = std::static_pointer_cast<ngraph::op::Op>(node)->get_op_annotations();
+        return (op_annotations &&
+            std::static_pointer_cast<ngraph::runtime::cpu::CPUOpAnnotations>(op_annotations)
+                ->is_mkldnn_op());
+    });
+
+    mod.method("node_set_mkldnn_op", [](const std::shared_ptr<ngraph::Node>& node)
+    {
+        auto ngraph_op = std::static_pointer_cast<ngraph::op::Op>(node);
+        auto op_annotations = std::make_shared<ngraph::runtime::cpu::CPUOpAnnotations>();
+        op_annotations->set_mkldnn_op(true);
+        ngraph_op->set_op_annotations(op_annotations);
+    });
+
+    // Graph Utils
+    mod.method("insert_new_node_between", &ngraph::insert_new_node_between);
+
+    mod.method("op_move", [](const std::shared_ptr<ngraph::Node> &arg){
+        auto a = std::make_shared<ngraph::op::Move>(arg);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
+
+//bool runtime::cpu::mkldnn_utils::use_mkldnn_kernel(const ngraph::Node* node)
+//{
+//    auto op_annotations = static_cast<const ngraph::op::Op*>(node)->get_op_annotations();
+//    return (op_annotations &&
+//            static_pointer_cast<ngraph::runtime::cpu::CPUOpAnnotations>(op_annotations)
+//                ->is_mkldnn_op());
+//}
+
+//void runtime::cpu::mkldnn_utils::assign_mkldnn_kernel(Node* node)
+//{
+//    auto ngraph_op = static_cast<op::Op*>(node);
+//    auto op_annotations = std::make_shared<ngraph::runtime::cpu::CPUOpAnnotations>();
+//    op_annotations->set_mkldnn_op(true);
+//    ngraph_op->set_op_annotations(op_annotations);
+//}
+
 
     // PMDK Stuff
 #ifdef NGRAPH_PMDK_ENABLE

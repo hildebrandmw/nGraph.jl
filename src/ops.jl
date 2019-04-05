@@ -136,6 +136,12 @@ Base.:*(w::Node, x::AbstractArray) = w * Node(x)
 Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 
 #####
+##### GetOutput
+#####
+
+get_output_element(x::Node, n) = Node(Lib.op_get_output_element(x.ptr, convert(Int, n-1)))
+
+#####
 ##### Log
 #####
 
@@ -220,6 +226,12 @@ function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
 end
 
 #####
+##### Result
+#####
+
+result(x::T) where {T <: Node} = T(Lib.op_result(x.ptr))
+
+#####
 ##### Softmax
 #####
 
@@ -248,16 +260,6 @@ function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
 end
 
 #######################################################################################
-
-if EXPERIMENTAL
-
-#####
-##### cpu ops
-#####
-
-function convert_layout_to(arg::Node{T,N}, target::Node, index) where {T,N}
-    node = Lib.op_cpu_convert_layout_to(arg.ptr, target.ptr, convert(Int, index-1))
-    return Node{T,N}(node)
-end
-
-end
+#
+# Custom ops
+move(x::T) where {T <: Node} = T(Lib.op_move(x.ptr))
