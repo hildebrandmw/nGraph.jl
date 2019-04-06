@@ -17,6 +17,10 @@
 // CPU Related Stuff
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
 #include "ngraph/runtime/cpu/cpu_op_annotations.hpp"
+#include "ngraph/runtime/cpu/cpu_helper.hpp"
+
+// CPU ops
+#include "ngraph/runtime/cpu/op/convert_layout.hpp"
 #include "ngraph/runtime/cpu/op/move.hpp"
 
 #ifdef NGRAPH_PMDK_ENABLE
@@ -562,19 +566,29 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// CPU Ops
     /////
 
-    //mod.method("op_cpu_convert_layout_to", [](
-    //    const std::shared_ptr<ngraph::Node> &arg,
-    //    const std::shared_ptr<ngraph::Node> &target,
-    //    int64_t input_index)
-    //{
-    //    // Get the LayoutDescriptor for `input_index` of `target`.
-    //    auto a = std::make_shared<ngraph::runtime::cpu::op::ConvertLayout>(
-    //        arg,
-    //        target,
-    //        input_index
-    //    );
-    //    return std::dynamic_pointer_cast<ngraph::Node>(a);
-    //});
+    mod.method("op_cpu_convert_layout_to", [](
+        const std::shared_ptr<ngraph::Node> &arg,
+        const std::shared_ptr<ngraph::Node> &target,
+        int64_t input_index)
+    {
+        // Get the LayoutDescriptor for `input_index` of `target`.
+        auto a = std::make_shared<ngraph::runtime::cpu::op::ConvertLayout>(
+            arg,
+            target,
+            input_index
+        );
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    // Need to wrap this in a lambda instead of just directly referencing the method
+    // because in the direct reference case, Julia cannot resolve the symbol
+    mod.method("input_needs_conversion", [](
+        const std::shared_ptr<ngraph::Node> &node,
+        size_t input_index)
+    {
+        return ngraph::runtime::cpu::input_needs_conversion(node, input_index);
+    });
+    
 
     // The following two methods were taken from mkldnn_utils.cpp in the runtime/cpu
     mod.method("node_is_mkldnn_op", [](const std::shared_ptr<ngraph::Node>& node)

@@ -205,6 +205,8 @@ set_mkldnn(n::Node) = Lib.node_set_mkldnn_op(n.ptr)
 
 splice(source::Node, dest::Node, x::Node) = Lib.insert_new_node_between(source.ptr, dest.ptr, x.ptr)
 
+input_needs_conversion(node::Node, i) = Lib.input_needs_conversion(node.ptr, convert(UInt, i-1))
+
 #####
 ##### TensorDescriptor
 #####

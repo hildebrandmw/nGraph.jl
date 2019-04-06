@@ -263,3 +263,5 @@ end
 #
 # Custom ops
 move(x::T) where {T <: Node} = T(Lib.op_move(x.ptr))
+
+convert_layout_to(x::Node, y::Node, i) = Node(Lib.op_cpu_convert_layout_to(x.ptr, y.ptr, convert(Int, i-1)))

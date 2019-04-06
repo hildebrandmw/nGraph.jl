@@ -16,7 +16,6 @@ mutable struct Executable
 
     function Executable(ptr, ngraph_function::NFunction, backend::Backend)
         ex = new(ptr, ngraph_function, backend)
-        finalizer(x -> Lib.remove_compiled_function(x.backend.ptr, x.ptr), ex)
         return ex
     end
 end
@@ -35,9 +34,8 @@ end
 function recompile(backend::Backend, ex::Executable)
     # Delete the executable from the backend
     
-    finalize(ex) 
-    #Lib.remove_compiled_function(backend.ptr, ex.ptr)
-    # GC.gc()
+    Lib.remove_compiled_function(backend.ptr, ex.ptr)
+    GC.gc()
 
     # Assume we're working in the same directory as the "cpu_codegen" directory.
     #
