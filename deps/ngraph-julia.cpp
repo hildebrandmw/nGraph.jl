@@ -607,6 +607,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         ngraph_op->set_op_annotations(op_annotations);
     });
 
+    mod.method("get_input_format_string", [](
+        const std::shared_ptr<ngraph::Node>& node,
+        size_t index)
+    {
+        return ngraph::runtime::cpu::get_input_format_string(node, index);
+    });
+
     // Graph Utils
     mod.method("insert_new_node_between", &ngraph::insert_new_node_between);
 
@@ -614,6 +621,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         auto a = std::make_shared<ngraph::op::Move>(arg);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
+
 
 //bool runtime::cpu::mkldnn_utils::use_mkldnn_kernel(const ngraph::Node* node)
 //{

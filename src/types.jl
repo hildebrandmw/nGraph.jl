@@ -175,6 +175,11 @@ get_input(N::Node, i) = Node(Lib.get_input_node(N.ptr, convert(Int, i-1)))
 get_inputs(N::Node) = [get_input(N,i) for i in 1:Lib.get_input_size(N.ptr)]
 
 get_output_size(N::Node) = Lib.get_output_size(N.ptr)
+get_output_element_type(N::Node, i) = back(Lib.get_output_element_type(N.ptr, convert(UInt, i-1)))
+function get_output_shape(N::Node, i)
+    shape = Lib.get_output_shape(N.ptr, convert(UInt, i-1))
+    return ntuple(i -> shape[i], length(shape))
+end
 
 get_output(N::Node, i) = Lib.get_output_nodes(N.ptr, convert(Int, i-1))
 get_outputs(N::Node) = [get_output(N, i) for i in 1:Lib.get_output_size(N.ptr)]
