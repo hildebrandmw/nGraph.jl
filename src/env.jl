@@ -18,3 +18,10 @@ end
 
 enable_timing() = ENV["NGRAPH_CPU_TRACING"] = true
 disable_timing() = delete!(ENV, "NGRAPH_CPU_TRACING")
+
+# Pass Enables
+abstract type AbstractPassAttribute end
+struct ReuseMemory <: AbstractPassAttribute end
+express(::ReuseMemory) = "ReuseMemory=1"
+
+set_pass_attributes(x::AbstractPassAttribute...) = (ENV["NGRAPH_PASS_ATTRIBUTES"] = join(express.(x), ";"))

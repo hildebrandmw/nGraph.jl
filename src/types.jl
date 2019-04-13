@@ -6,6 +6,9 @@ struct HasPointer end
 
 wraptype(x) = error("No wrap type defined for $(typeof(x))")
 
+getpointer(x) = _ptr(x, wraptype(x))
+_ptr(x, ::IsPointer) = x
+_ptr(x, ::HasPointer) = x.ptr
 
 
 # This is kind of a gross way of mapping Julia types to ngraph types.
@@ -150,67 +153,74 @@ Node(x::Node) = x
 Base.getindex(n::Node{T,N}, inds...) where {T,N} = zero(T)
 
 function Base.size(n::Node{T,N}) where {T,N}
-    shape = Lib.get_output_shape(n.ptr, zero(UInt64))
+    shape = Lib.get_output_shape(getpointer(n), zero(UInt64))
     @assert N == length(shape)
 
     return ntuple(i -> shape[i], N)
 end
 
 # Forwards
-name(N::Node) = Lib.get_name(N.ptr)
-description(N::Node) = Lib.description(N.ptr)
+name(N::Node) = Lib.get_name(getpointer(N))
+description(N::Node) = Lib.description(getpointer(N))
 Base.IndexStyle(::Node) = Base.IndexLinear()
 
 # Output sizes etc. are dealt with in the node's type signature.
 # Here, we deal with inputs
-get_input_size(N::Node) = Lib.get_input_size(N.ptr)
-get_input_element_type(N::Node, i) = back(Lib.get_input_element_type(N.ptr, convert(UInt, i-1)))
+get_input_size(N::Node) = Lib.get_input_size(getpointer(N))
+get_input_element_type(N::Node, i) = 
+    back(Lib.get_input_element_type(getpointer(N), convert(UInt, i-1)))
 function get_input_shape(N::Node, i)
-    shape = Lib.get_input_shape(N.ptr, convert(UInt, i-1))
+    shape = Lib.get_input_shape(getpointer(N), convert(UInt, i-1))
     return ntuple(i -> shape[i], length(shape))
 end
 
 # Get input and output nodes.
-get_input(N::Node, i) = Node(Lib.get_input_node(N.ptr, convert(Int, i-1)))
-get_inputs(N::Node) = [get_input(N,i) for i in 1:Lib.get_input_size(N.ptr)]
+get_input(N::Node, i) = Node(Lib.get_input_node(getpointer(N), convert(Int, i-1)))
+get_inputs(N::Node) = [get_input(N,i) for i in 1:Lib.get_input_size(getpointer(N))]
 
-get_output_size(N::Node) = Lib.get_output_size(N.ptr)
-get_output_element_type(N::Node, i) = back(Lib.get_output_element_type(N.ptr, convert(UInt, i-1)))
+get_output_size(N::Node) = Lib.get_output_size(getpointer(N))
+get_output_element_type(N::Node, i) = 
+    back(Lib.get_output_element_type(getpointer(N), convert(UInt, i-1)))
+
 function get_output_shape(N::Node, i)
-    shape = Lib.get_output_shape(N.ptr, convert(UInt, i-1))
+    shape = Lib.get_output_shape(getpointer(N), convert(UInt, i-1))
     return ntuple(i -> shape[i], length(shape))
 end
 
-get_output(N::Node, i) = Lib.get_output_nodes(N.ptr, convert(Int, i-1))
-get_outputs(N::Node) = [get_output(N, i) for i in 1:Lib.get_output_size(N.ptr)]
+get_output(N::Node, i) = Lib.get_output_nodes(getpointer(N), convert(Int, i-1))
+get_outputs(N::Node) = [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))]
 
 """
     copy(node::Node, args::NodeVector)
 
 Construct a copy of `N` with `args` as input arguments.
 """
-Base.copy(node::Node{T,N}, args) where {T,N} = Node{T,N}(Lib.copy_with_new_args(node.ptr, args))
+Base.copy(node::Node{T,N}, args) where {T,N} = Node{T,N}(Lib.copy_with_new_args(getpointer(node), args))
 
 # Base Methods
 Base.axes(n::Node) = map(Base.OneTo, size(n))
 Base.ndims(n::Node{T,N}) where {T,N} = N
 
 # Get TensorDescriptors
-output_descriptor(N::Node, i) = TensorDescriptor(Lib.get_output_tensor_ptr(N.ptr, convert(Int, i-1)))
 output_descriptors(N::Node) = [output_descriptor(N, i) for i in 1:get_output_size(N)]
+output_descriptor(N::Node, i) = 
+    TensorDescriptor(Lib.get_output_tensor_ptr(getpointer(N), convert(Int, i-1)))
 
-input_descriptor(N::Node, i) = TensorDescriptor(Lib.get_input_tensor_ptr(N.ptr, convert(Int, i-1)))
+
 input_descriptors(N::Node) = [input_descriptor(N, i) for i in 1:get_input_size(N)]
+input_descriptor(N::Node, i) = 
+    TensorDescriptor(Lib.get_input_tensor_ptr(getpointer(N), convert(Int, i-1)))
 
-copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(n.ptr, args))
+copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(getpointer(n), args))
 copy_with_new_args(n::Node, args::Vector) = copy_with_new_args(n, NodeVector(args))
 
-is_mkldnn(n::Node) = Lib.node_is_mkldnn_op(n.ptr)
-set_mkldnn(n::Node) = Lib.node_set_mkldnn_op(n.ptr)
+is_mkldnn(n::Node) = Lib.node_is_mkldnn_op(getpointer(n))
+set_mkldnn(n::Node) = Lib.node_set_mkldnn_op(getpointer(n))
 
-splice(source::Node, dest::Node, x::Node) = Lib.insert_new_node_between(source.ptr, dest.ptr, x.ptr)
+splice(source::Node, dest::Node, x::Node) = 
+    Lib.insert_new_node_between(getpointer(source), getpointer(dest), getpointer(x))
 
-input_needs_conversion(node::Node, i) = Lib.input_needs_conversion(node.ptr, convert(UInt, i-1))
+input_needs_conversion(node::Node, i) = Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
 
 #####
 ##### TensorDescriptor
@@ -232,14 +242,14 @@ function Base.show(io::IO, T::TensorDescriptor)
     println(io, "    Is Persistent: $(is_persistent(T))")
 end
 
-make_persistent(T::TensorDescriptor) = Lib.make_persistent(T.ptr)
-make_volatile(T::TensorDescriptor) = Lib.make_volatile(T.ptr)
-is_persistent(T::TensorDescriptor) = Lib.is_persistent(T.ptr)
-Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(T.ptr))
-get_name(T::TensorDescriptor) = Lib.get_name(T.ptr)
+make_persistent(T::TensorDescriptor) = Lib.make_persistent(getpointer(T))
+make_volatile(T::TensorDescriptor) = Lib.make_volatile(getpointer(T))
+is_persistent(T::TensorDescriptor) = Lib.is_persistent(getpointer(T))
+Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(getpointer(T)))
+get_name(T::TensorDescriptor) = Lib.get_name(getpointer(T))
 
 # Set pool offsets back to zero
-reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(T.ptr, convert(UInt, 0))
+reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(getpointer(T), convert(UInt, 0))
 
 #####
 ##### Tensor
@@ -253,17 +263,16 @@ struct Tensor{T,N} <: AbstractArray{T,N}
     function Tensor{T}(::UndefInitializer, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
         shape = Shape(inds)
         element = Element(T)
-        ptr = Lib.create_tensor(backend.ptr, element, shape)
+        pointer = Lib.create_tensor(getpointer(backend), element, shape)
 
-        return new{T,N}(ptr)
+        return new{T,N}(pointer)
     end
 
     function Tensor(backend::Backend, param::Node{T,N}) where {T,N}
         shape = Shape(size(param))
-        element = Lib.get_output_element_type(param.ptr, UInt(0))
-        ptr = Lib.create_tensor(backend.ptr, Element(T), shape)
+        pointer = Lib.create_tensor(getpointer(backend), Element(T), shape)
 
-        A = new{T,N}(ptr)
+        A = new{T,N}(pointer)
         # Check if the node have any data attached to it. If so, copy it into the tensor
         if size(param.data) == size(param)
             A .= param.data
@@ -275,9 +284,9 @@ struct Tensor{T,N} <: AbstractArray{T,N}
     function Tensor{T}(::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
         shape = Shape(inds)
         element = Element(T)
-        ptr = Lib.create_persistent_tensor(backend.ptr, element, shape)
+        pointer = Lib.create_persistent_tensor(getpointer(backend), element, shape)
 
-        return new{T,N}(ptr)
+        return new{T,N}(pointer)
     end
 end
 wraptype(::Tensor) = HasPointer()
@@ -304,29 +313,45 @@ function PersistentTensor(backend, param::Node{T,N}, copy = false) where {T,N}
 end
 
 function Base.size(t::Tensor{T,N}) where {T,N}
-    shape = Shape(t.ptr)
+    shape = Shape(getpointer(t))
     @assert N == length(shape)
 
     return ntuple(i -> shape[i], N)
 end
 
+Base.sizeof(t::Tensor{T,N}) where {T,N} = prod(size(t)) * sizeof(T)
+
 function Base.getindex(t::Tensor{T,N}, i) where {T,N} 
     x = [zero(T)]
-    GC.@preserve x Lib.tensor_read(t.ptr, Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(T)))
+    GC.@preserve x Lib.tensor_read(getpointer(t), Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(T)))
     return first(x)
 end
 
 # Need to define this to get around the MKL buffer-overflow bug
 function Base.collect(t::Tensor{T,N}) where {T,N}
     x = Array{T}(undef, size(t)...)
-    GC.@preserve x Lib.tensor_read(t.ptr, Ptr{Cvoid}(pointer(x)), UInt64(0), UInt64(sizeof(x)))
+    GC.@preserve x Lib.tensor_read(getpointer(t), Ptr{Cvoid}(pointer(x)), UInt64(0), UInt64(sizeof(x)))
     return x
 end
 
 function Base.setindex!(t::Tensor{T,N}, v, i) where {T,N}
     x = [convert(T, v)]
-    GC.@preserve x Lib.tensor_write(t.ptr, Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(x)))
+    GC.@preserve x Lib.tensor_write(getpointer(t), Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(x)))
     return nothing
+end
+
+# Speed up copying data to tensors
+function Base.materialize!(V::Tensor{T,N}, bc::Base.Broadcast.Broadcasted) where {T <: Union{Float32, Float64, Int32, Int64},N}
+    x = Base.materialize(bc)
+
+    # Just print an error for now. In the future, I need to figure out what's causing
+    # this and fix it in a better way
+    if sizeof(V) != sizeof(x)
+        @error "Unfixed size mismatch bug"
+    end
+
+    minsize = min(sizeof(V), sizeof(x))
+    GC.@preserve x Lib.tensor_write(getpointer(V), Ptr{Cvoid}(pointer(x)), zero(UInt64), convert(UInt64, minsize))
 end
 
 Base.IndexStyle(::Tensor) = Base.IndexLinear()
@@ -339,7 +364,7 @@ const Adjoints = Lib.AdjointsAllocated
 wraptype(::Adjoints) = IsPointer()
 
 Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
-backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, x.ptr), x)
+backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, getpointer(x)), x)
 
 #####
 ##### Parameters
@@ -351,7 +376,7 @@ wraptype(::ParameterVector) = IsPointer()
 function ParameterVector(args::Node...)
     p = Lib.ParameterVector()
     for arg in args
-        Lib.push!(p, arg.ptr)
+        Lib.push!(p, getpointer(arg))
     end
     return p
 end
@@ -371,7 +396,7 @@ NodeVector(x, args...) = NodeVector((x, args...))
 function NodeVector(args::Union{Tuple,Vector})
     p = Lib.NodeVector()
     for arg in args
-        Lib.push!(p, arg.ptr)
+        Lib.push!(p, getpointer(arg))
     end
     return p
 end
@@ -410,13 +435,13 @@ mutable struct NFunction
 end
 wraptype(::NFunction) = HasPointer()
 
-get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(f.ptr)
-get_results(f::NFunction) = Lib.get_results(f.ptr)
-get_parameters(f::NFunction) = Lib.get_parameters(f.ptr)
+get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(getpointer(f))
+get_results(f::NFunction) = Lib.get_results(getpointer(f))
+get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
 
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
-name(f::NFunction) = Lib.get_name(f.ptr)
+name(f::NFunction) = Lib.get_name(getpointer(f))
 
 Base.iterate(f::NFunction, s = 1) = (s <= length(f)) ? (f[s], s+1) : nothing
 

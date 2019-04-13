@@ -43,7 +43,7 @@ Base.broadcasted(::typeof(copy), x::Node) = x
 ##### Add
 #####
 
-add(a::N, b::N) where {N <: Node} = N(Lib.op_add(a.ptr, b.ptr))
+add(a::N, b::N) where {N <: Node} = N(Lib.op_add(getpointer(a), getpointer(b)))
 Base.:+(a::Node, b::Node) = add(a,b)
 
 #####
@@ -57,7 +57,7 @@ function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N
     padding_below = Shape(expand(N-2, pad))
     padding_above = Shape(expand(N-2, pad))
 
-    ptr = Lib.op_avgpool(x.ptr, window_shape, strides, padding_below, padding_above)
+    ptr = Lib.op_avgpool(getpointer(x), window_shape, strides, padding_below, padding_above)
     return Node{T,N}(ptr)
 end
 Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
@@ -77,7 +77,7 @@ function Base.broadcast(
     final_shape = Shape(shape)
     axis_set = AxisSet(axes, N)
 
-    return Node{T,N}(Lib.op_broadcast(a.ptr, final_shape, axis_set))
+    return Node{T,N}(Lib.op_broadcast(getpointer(a), final_shape, axis_set))
 end
 
 
@@ -109,7 +109,7 @@ function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 
     padding = CoordinateDiff(expand(N-2, pad))
     dilations = Strides(expand(N-2, dilation))
 
-    node = Lib.op_convolution(x.ptr, w.ptr, strides, dilations, padding, padding)
+    node = Lib.op_convolution(getpointer(x), getpointer(w), strides, dilations, padding, padding)
     return Node{T,N}(node)
 end
 
@@ -117,7 +117,8 @@ end
 ##### Divide
 #####
 
-divide(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_divide(a.ptr, b.ptr))
+divide(a::Node{T,N}, b::Node{T,N}) where {T,N} = 
+    Node{T,N}(Lib.op_divide(getpointer(a), getpointer(b)))
 
 Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
 Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
@@ -128,7 +129,8 @@ Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
 
 # Reverse the order in the call to `Lib.op_dot` to account for row major/col major
 # differences
-dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} = Node{T,M}(Lib.op_dot(b.ptr, a.ptr, UInt(n)))
+dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} = 
+    Node{T,M}(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
 
 # Fully Connected
 Base.:*(w::Node, x::Node) = dot(w, x, 1)
@@ -139,20 +141,20 @@ Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 ##### GetOutput
 #####
 
-get_output_element(x::Node, n) = Node(Lib.op_get_output_element(x.ptr, convert(Int, n-1)))
+get_output_element(x::Node, n) = Node(Lib.op_get_output_element(getpointer(x), convert(Int, n-1)))
 
 #####
 ##### Log
 #####
 
-Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(a.ptr))
+Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(getpointer(a)))
 
 #####
 ##### Max
 #####
 
 # The semantics between max and maximum are flipped around beween Julia and nGraph
-Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(a.ptr, b.ptr))
+Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(getpointer(a), getpointer(b)))
 
 #####
 ##### MaxPool
@@ -165,7 +167,7 @@ function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where
     padding_below = Shape(expand(N-2, pad))
     padding_above = Shape(expand(N-2, pad))
 
-    ptr = Lib.op_maxpool(x.ptr, window_shape, strides, padding_below, padding_above)
+    ptr = Lib.op_maxpool(getpointer(x), window_shape, strides, padding_below, padding_above)
     return Node{T,N}(ptr)
 end
 
@@ -173,21 +175,21 @@ end
 ##### Multiply
 #####
 
-multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(a.ptr, b.ptr))
+multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(getpointer(a), getpointer(b)))
 
 #####
 ##### Minimum
 #####
 
 # The `min` and `minimum` semantics are swapped between Julia and nGraph.
-Base.minimum(a::N, b::N) where {N <: Node} = N(Lib.op_minimum(a.ptr, b.ptr))
+Base.minimum(a::N, b::N) where {N <: Node} = N(Lib.op_minimum(getpointer(a), getpointer(b)))
 _forward(::typeof(min)) = minimum
 
 #####
 ##### Negative
 #####
 
-negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(a.ptr))
+negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(getpointer(a)))
 
 Base.:-(a::Node) = negative(a)
 
@@ -203,14 +205,14 @@ parameter(x::Node) = x
 ##### Power
 #####
 
-power(a::N, b::N) where {N <: Node} = N(Lib.op_parameter(a.ptr, b.ptr))
+power(a::N, b::N) where {N <: Node} = N(Lib.op_parameter(getpointer(a), getpointer(b)))
 Base.:^(a::N, b::N) where {N <: Node} = power(a, b)
 
 #####
 ##### Relu
 #####
 
-Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(a.ptr))
+Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(getpointer(a)))
 
 #####
 ##### Reshape
@@ -221,7 +223,7 @@ Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(a.ptr))
 function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
     av = AxisVector(1:N, N)
     shape = Shape(dims)
-    node = Lib.op_reshape(x.ptr, av, shape)
+    node = Lib.op_reshape(getpointer(x), av, shape)
     return Node{T,M}(node)
 end
 
@@ -229,7 +231,7 @@ end
 ##### Result
 #####
 
-result(x::T) where {T <: Node} = T(Lib.op_result(x.ptr))
+result(x::T) where {T <: Node} = T(Lib.op_result(getpointer(x)))
 
 #####
 ##### Softmax
@@ -237,7 +239,7 @@ result(x::T) where {T <: Node} = T(Lib.op_result(x.ptr))
 
 function Flux.softmax(x::Node{T,N}; axes = 1) where {T,N}
     av = AxisSet(axes, N)
-    node = Lib.op_softmax(x.ptr, av)
+    node = Lib.op_softmax(getpointer(x), av)
     return Node{T,N}(node)
 end
 
@@ -245,7 +247,7 @@ end
 ##### Subtract
 #####
 
-subtract(a::N, b::N) where {N <: Node} = N(Lib.op_subtract(a.ptr, b.ptr))
+subtract(a::N, b::N) where {N <: Node} = N(Lib.op_subtract(getpointer(a), getpointer(b)))
 Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
 
 #####
@@ -255,13 +257,14 @@ Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
 # Default to reducing along all dimensions
 function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
     as = AxisSet(axes, N)
-    node = Lib.op_sum(x.ptr, as)
+    node = Lib.op_sum(getpointer(x), as)
     return Node{T, N - length(axes)}(node)
 end
 
 #######################################################################################
 #
 # Custom ops
-move(x::T) where {T <: Node} = T(Lib.op_move(x.ptr))
+move(x::T) where {T <: Node} = T(Lib.op_move(getpointer(x)))
 
-convert_layout_to(x::Node, y::Node, i) = Node(Lib.op_cpu_convert_layout_to(x.ptr, y.ptr, convert(Int, i-1)))
+convert_layout_to(x::Node, y::Node, i) = 
+    Node(Lib.op_cpu_convert_layout_to(getpointer(x), getpointer(y), convert(Int, i-1)))

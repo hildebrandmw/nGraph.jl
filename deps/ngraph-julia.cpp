@@ -588,7 +588,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         return ngraph::runtime::cpu::input_needs_conversion(node, input_index);
     });
-    
+
 
     // The following two methods were taken from mkldnn_utils.cpp in the runtime/cpu
     mod.method("node_is_mkldnn_op", [](const std::shared_ptr<ngraph::Node>& node)
@@ -673,7 +673,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // PMDK stuff
     mod.add_type<ngraph::pmem::PMEMManager>("PMEMManager")
         .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
-        .method("create_pool", &ngraph::pmem::PMEMManager::create_pool);
+        .method("set_pool_dir", &ngraph::pmem::PMEMManager::set_pool_dir);
 
 #endif
 

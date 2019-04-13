@@ -15,6 +15,7 @@ function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
     else
         cn = NNlib.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
     end
+
     # Broadcast the bias along the first `N` dimensions and the last
     axis_set = [collect(1:N); N+2]
     bb = broadcast(Node(c.bias), size(cn); axes = axis_set)
@@ -98,9 +99,6 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
         NodeVector(outputs..., opt_outputs...)
     )
 
-    # TODO: Need to actually iterate over the result vector since nGraph converts
-    # the NodeVector to a ResultVector
-
     # Create tensors for the outputs
     tensors = map(x -> Tensor(backend, x), outputs) 
 
@@ -113,25 +111,16 @@ struct FluxExecutable{T,V}
     outputs::V
 end
 
-function recompile(backend::Backend, fex::FluxExecutable)
-    # All of the tensors and nodes we've defined earlier ... should still be valid?
-    #   -- question - what if we change the state of one of the inputs?
-    #  
-    # TODO: I think I need to work on the persistent memory implementation in nGraph to
-    # allow basically anything to be allocated in persistent memory.
-    ex = recompile(backend, fex.ex)
-    return FluxExecutable(ex, fex.optimizer, fex.outputs)
-end
+recompile(fex::FluxExecutable) = FluxExecutable(recompile(fex.ex), fex.optimizer, fex.outputs)
 
 function (ex::FluxExecutable)(args...)
-    inputs = Any[i.ptr for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
-    outputs = Any[o.ptr for o in Iterators.flatten((ex.outputs, getoutputs(ex.optimizer)))]
+    inputs = Any[getpointer(i) for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
+    outputs = Any[getpointer(o) for o in Iterators.flatten((ex.outputs, getoutputs(ex.optimizer)))]
     
     # Since we're passing wrapped type to C++, we have to cast them to Any's
     ex.ex(inputs, outputs)
 
     update!(ex.optimizer)
-
     return untuple(ex.outputs)
 end
 
