@@ -40,5 +40,5 @@ LOAD_FLAGS+= -L$(mkfile_dir)usr/lib -Wl,-rpath,$(mkfile_dir)usr/lib -lngraph #-l
 
 all: libngraph-julia.so
 
-libngraph-julia.so: ngraph-julia.cpp
+libngraph-julia.so: ngraph-julia.cpp ./usr/lib/libngraph.so ./usr/lib/libcpu_backend.so
 	$(CXX) $(CXXFLAGS) -shared $^ -lpthread -o $@ $(LOAD_FLAGS)
