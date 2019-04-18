@@ -264,7 +264,7 @@ end
 #######################################################################################
 #
 # Custom ops
-move(x::T) where {T <: Node} = T(Lib.op_move(getpointer(x)))
+move(x::T, output = 1) where {T <: Node} = T(Lib.op_move(getpointer(x), convert(UInt, output-1)))
 
 convert_layout_to(x::Node, y::Node, i) = 
     Node(Lib.op_cpu_convert_layout_to(getpointer(x), getpointer(y), convert(Int, i-1)))

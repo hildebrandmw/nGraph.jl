@@ -29,7 +29,7 @@ _dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
 
 # Extend to unwrap tracked arrays
 function Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N}
-    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), copy(Flux.data(x)))
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), Flux.data(x))
 end
 
 # Methods defined to avoid ambiguity
@@ -75,10 +75,10 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
     ctx = SnoopCtx(metadata = IdDict{Any,Node}())
 
     # Extract the parameter from all the inputs
-    inputs = Node.(args)
+    @time inputs = Node.(args)
 
     # Perform traced execution on the function.
-    outputs = astuple(Cassette.overdub(ctx, f, inputs...))
+    @time outputs = astuple(Cassette.overdub(ctx, f, inputs...))
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
@@ -90,17 +90,17 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
         params = params,
         _id = ctx.metadata,
     )
-    opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
+    @time opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
 
     # Compile the executable
-    ex = compile(
+    @time ex = compile(
         backend, 
         ParameterVector(inputs..., opt_inputs...),
         NodeVector(outputs..., opt_outputs...)
     )
 
     # Create tensors for the outputs
-    tensors = map(x -> Tensor(backend, x), outputs) 
+    @time tensors = map(x -> Tensor(backend, x), outputs) 
 
     return FluxExecutable(ex, opt, tensors)
 end

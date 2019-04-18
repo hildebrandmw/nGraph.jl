@@ -615,30 +615,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     // Graph Utils
-    mod.method("insert_new_node_between", &ngraph::insert_new_node_between);
+    mod.method("my_insert_new_node_between", &ngraph::my_insert_new_node_between);
 
-    mod.method("op_move", [](const std::shared_ptr<ngraph::Node> &arg){
-        auto a = std::make_shared<ngraph::op::Move>(arg);
+    mod.method("op_move", [](const std::shared_ptr<ngraph::Node> &arg, size_t n){
+        auto a = std::make_shared<ngraph::op::Move>(arg, n);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
-
-
-//bool runtime::cpu::mkldnn_utils::use_mkldnn_kernel(const ngraph::Node* node)
-//{
-//    auto op_annotations = static_cast<const ngraph::op::Op*>(node)->get_op_annotations();
-//    return (op_annotations &&
-//            static_pointer_cast<ngraph::runtime::cpu::CPUOpAnnotations>(op_annotations)
-//                ->is_mkldnn_op());
-//}
-
-//void runtime::cpu::mkldnn_utils::assign_mkldnn_kernel(Node* node)
-//{
-//    auto ngraph_op = static_cast<op::Op*>(node);
-//    auto op_annotations = std::make_shared<ngraph::runtime::cpu::CPUOpAnnotations>();
-//    op_annotations->set_mkldnn_op(true);
-//    ngraph_op->set_op_annotations(op_annotations);
-//}
-
 
     // PMDK Stuff
 #ifdef NGRAPH_PMDK_ENABLE

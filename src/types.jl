@@ -142,7 +142,7 @@ Node{T,N}(ptr) where {T,N} = Node{T,N}(ptr, T[])
 
 Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
 function Node{T,N}(x::AbstractArray{T,N}) where {T,N}
-    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), copy(x))
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), x)
 end
 
 function Node{T}(x::T) where {T}
@@ -217,8 +217,14 @@ copy_with_new_args(n::Node, args::Vector) = copy_with_new_args(n, NodeVector(arg
 is_mkldnn(n::Node) = Lib.node_is_mkldnn_op(getpointer(n))
 set_mkldnn(n::Node) = Lib.node_set_mkldnn_op(getpointer(n))
 
-splice(source::Node, dest::Node, x::Node) = 
-    Lib.insert_new_node_between(getpointer(source), getpointer(dest), getpointer(x))
+splice(source::Node, source_output, dest::Node, dest_input, x::Node) = 
+    Lib.my_insert_new_node_between(
+        getpointer(source), 
+        convert(UInt, source_output - 1),
+        getpointer(dest), 
+        convert(UInt, dest_input - 1),
+        getpointer(x)
+   )
 
 input_needs_conversion(node::Node, i) = Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
 

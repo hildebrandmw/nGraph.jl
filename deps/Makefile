@@ -5,7 +5,7 @@ OPT= -g -O3
 CXXFLAGS+= -Wall -fPIC $(OPT) -std=c++14 -DPCM_SILENT -DJULIA_ENABLE_THREADING -Dexcept_EXPORTS
 CXXFLAGS+= -I$(CXXWRAP_HOME)/include -I$(JULIA_HOME)/include/julia -I$(mkfile_dir)usr/include
 # Add path to PMDK
-CXXFLAGS+= -I${mkfile_dir}/usr/include/pmdk
+#CXXFLAGS+= -I${mkfile_dir}/usr/include/pmdk
 # Add path to mkldnn
 #CXXFLAGS+= -I$(mkfile_dir)/ngraph/build/mkldnn/include
 # Add this flag to turn off a bunch of unused variable warnings in in libcxxwrap
@@ -35,10 +35,10 @@ CXXFLAGS+= $(DEFINES)
 # - libmklml_intel: Same story as mkldnn.
 LOAD_FLAGS+= -L$(JULIA_HOME)/lib/ -Wl,--export-dynamic -Wl,-rpath,$(JULIA_HOME)/lib -ljulia
 LOAD_FLAGS+= -L$(CXXWRAP_HOME)/lib/ -Wl,-rpath,$(CXXWRAP_HOME)/lib -lcxxwrap_julia
-LOAD_FLAGS+= -L${mkfile_dir}/ngraph/build/pmdk/lib/ -Wl,-rpath,${mkfile_dir}/ngraph/build/pmdk/lib -lpmemobj -lpmem
+#LOAD_FLAGS+= -L${mkfile_dir}/ngraph/build/pmdk/lib/ -Wl,-rpath,${mkfile_dir}/ngraph/build/pmdk/lib -lpmemobj -lpmem
 LOAD_FLAGS+= -L$(mkfile_dir)usr/lib -Wl,-rpath,$(mkfile_dir)usr/lib -lngraph #-lcpu_backend
 
 all: libngraph-julia.so
 
-libngraph-julia.so: ngraph-julia.cpp ./usr/lib/libngraph.so ./usr/lib/libcpu_backend.so
+libngraph-julia.so: ngraph-julia.cpp ${mkfile_dir}usr/lib/libngraph.so
 	$(CXX) $(CXXFLAGS) -shared $^ -lpthread -o $@ $(LOAD_FLAGS)
