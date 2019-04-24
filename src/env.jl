@@ -12,7 +12,7 @@ function codegen_debug()
     # The actual values that are assigned don't actually matter. It just matters that these
     # variables are assigned to begin with.
     ENV["NGRAPH_COMPILER_DEBUGINFO_ENABLE"] = true
-    #ENV["NGRAPH_COMPILER_DIAG_ENABLE"] = true
+    ENV["NGRAPH_COMPILER_DIAG_ENABLE"] = true
     ENV["NGRAPH_COMPILER_REPORT_ENABLE"] = true
 end
 

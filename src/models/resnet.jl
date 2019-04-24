@@ -21,9 +21,7 @@ function ResidualBlock(
         for i in 2:length(filters)
     ]
 
-    #push!(norm_layers, BatchNorm(filters[i]))
-    norm_layers = [identity for _ in 2:length(filters)]
-
+    norm_layers = [BatchNorm(filters[i]) for i in 2:length(filters)]
     ResidualBlock(Tuple(conv_layers), Tuple(norm_layers), shortcut)
 end
 
@@ -72,13 +70,13 @@ function Bottleneck(filters::Int, downsample::Bool = false, res_top::Bool = fals
                     pad = (0,0),
                     stride = (1,1)
                 ),
-                #BatchNorm(4 * filters)
+                BatchNorm(4 * filters)
            )
         )
     else
         shortcut = Chain(
             Conv((1,1), 2 * filters=>4 * filters, pad = (0,0), stride = (2,2)),
-            #BatchNorm(4 * filters)
+            BatchNorm(4 * filters)
         )
         return ResidualBlock(
             [2 * filters, filters, filters, 4 * filters],
@@ -109,6 +107,7 @@ function _resnet50()
     push!(layer_arr, x -> meanpool(x, (7,7)))
     push!(layer_arr, x -> reshape(x, :, size(x,4)))
     push!(layer_arr, (Dense(2048, 1000)))
+    push!(layer_arr, x -> log.(max.(x, Float32(1e-9)))),
     push!(layer_arr, softmax)
 
     #Chain(layer_arr...)
@@ -127,4 +126,14 @@ function resnet50(batchsize = 16)
 
     f = nGraph.compile(backend, _resnet50(), X)
     return f, X
+end
+
+function resnet50_training(batchsize = 16)
+    backend = Backend()
+    X = Tensor(backend, rand(Float32, 224, 224, 3, batchsize))
+    Y = Tensor(backend, rand(Float32, 1000, batchsize))
+
+    g(x, y) = Flux.crossentropy(_resnet50()(x), y)
+    f = nGraph.compile(g, X, Y; optimizer = nGraph.SGD(Float32(0.00001)))
+    return f, (X, Y)
 end

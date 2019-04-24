@@ -37,7 +37,7 @@ Base.convert(::Type{Node{T,0}}, x::S) where {T,S <: Number} = Node{T,0}(convert(
 Base.broadcasted(::typeof(copy), x::Node) = x
 
 # TODO: Add this
-(::Flux.BatchNorm)(x::Node) = x
+#(::Flux.BatchNorm)(x::Node) = x
 
 #####
 ##### Add
@@ -61,6 +61,19 @@ function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N
     return Node{T,N}(ptr)
 end
 Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
+
+#####
+##### BatchNorm
+#####
+
+function batchnorm_training(input::Node, γ::Node, β::Node, ϵ)
+    return Node(Lib.op_batchnorm_training(
+        getpointer(input),
+        getpointer(γ),
+        getpointer(β),
+        convert(Float64, ϵ)
+    ))
+end
 
 #####
 ##### Broadcast
@@ -98,6 +111,8 @@ Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
 #####
 
 constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
+constant(x::AbstractArray{T,N}) where {T,N} =
+    Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), x))
 
 #####
 ##### Convolution
@@ -114,10 +129,40 @@ function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 
 end
 
 #####
+##### Deconvolution
+#####
+
+function deconvolution(x::Node{T,N}, w::Node{T,N}, out_shape;
+        stride = 1,
+        pad = 0,
+        dilation = 1
+    ) where {T,N}
+
+    # see https://github.com/NervanaSystems/ngraph-mxnet-bridge/blob/master/src/ops/deconvolution.cc
+    # for inspiration about how this thing came about.
+    out_shape = Shape(out_shape)
+    strides = Strides(expand(N-2, stride))
+    padding = CoordinateDiff(expand(N-2, pad))
+    dilations = Strides(expand(N-2, dilation))
+    data_dilation = Strides(ntuple(i -> 1, N-2))
+
+    node = Node{T,N}(Lib.op_convolution_backprop_data(
+        getpointer(out_shape),
+        getpointer(w),
+        getpointer(x),
+        getpointer(strides),
+        getpointer(dilations),
+        getpointer(padding),
+        getpointer(padding),
+        getpointer(data_dilation),
+    ))
+end
+
+#####
 ##### Divide
 #####
 
-divide(a::Node{T,N}, b::Node{T,N}) where {T,N} = 
+divide(a::Node{T,N}, b::Node{T,N}) where {T,N} =
     Node{T,N}(Lib.op_divide(getpointer(a), getpointer(b)))
 
 Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
@@ -129,7 +174,7 @@ Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
 
 # Reverse the order in the call to `Lib.op_dot` to account for row major/col major
 # differences
-dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} = 
+dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} =
     Node{T,M}(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
 
 # Fully Connected
@@ -141,7 +186,7 @@ Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 ##### GetOutput
 #####
 
-get_output_element(x::Node, n) = Node(Lib.op_get_output_element(getpointer(x), convert(Int, n-1)))
+get_output_element(x::Node, n) = Node(Lib.op_get_output_element(getpointer(x), convert(UInt, n-1)))
 
 #####
 ##### Log
@@ -266,5 +311,5 @@ end
 # Custom ops
 move(x::T, output = 1) where {T <: Node} = T(Lib.op_move(getpointer(x), convert(UInt, output-1)))
 
-convert_layout_to(x::Node, y::Node, i) = 
+convert_layout_to(x::Node, y::Node, i) =
     Node(Lib.op_cpu_convert_layout_to(getpointer(x), getpointer(y), convert(Int, i-1)))

@@ -1,3 +1,5 @@
+
+
 # Because julia-vim and YouCompleteMe don't get along
 _getsigma(x) = x.σ
 
@@ -27,12 +29,38 @@ end
 # Again, getting around a Cassette issue
 _dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
 
+# TODO: ngraph makes the dictinction between training and inference. For now, we will 
+# assume training, but eventually I can add a parameter to SnoopCtx that will determine
+# if we're training or inferring and pass that information here.
+function _batchnorm_impl(BN::Flux.BatchNorm, x::Node)
+    # Create the batchnorm op and then do activation.
+    γ = Node(BN.γ) 
+    β = Node(BN.β)
+    
+    n = batchnorm_training(x, γ, β, BN.ϵ)
+
+    # The batchnorm_training op in ngraph returns a tuple
+    # (normalized, gamma, beta). We apply the activation function to the normalized output.
+    #
+    # We also have call `get_output_element` on the other two outputs so that downstream
+    # graph rewriting in ngraph works correctly.
+    #
+    # Also note that we have to `__register` the nodes so they become hidden outputs of the 
+    # compiled ngraph graph. Otherwide, things break horribly
+    a = get_output_element(n, 1)
+    __register(get_output_element(n, 2))
+    __register(get_output_element(n, 3))
+
+    return BN.λ.(a)
+end
+
+
 # Extend to unwrap tracked arrays
 function Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N}
     return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), Flux.data(x))
 end
 
-# Methods defined to avoid ambiguity
+# Methods defined to avoid method ambiguity in julia's dispatch
 Base.:*(x::TrackedArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
 Base.:*(x::TrackedArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 
@@ -48,12 +76,33 @@ end
 flip_kernel(x::AbstractArray) = true
 flip_kernel(x) = false
 
+#####
+##### Cassette Magic
+#####
+
 Cassette.@context SnoopCtx
+
+"""
+    __register(x::Node) -> Nothing
+
+By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers `x` as a 
+hidden output of a ngraph function.
+"""
+__register(x::Node) = nothing
+
+struct SnoopMeta
+    id::IdDict{Any,Node}
+    hidden_outputs::Vector{Node}
+end
+SnoopMeta() = SnoopMeta(IdDict{Any,Node}(), Node[])
 
 # Hijack Node constructors from TrackedArrays
 function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Flux.Tracker.TrackedArray) where {T,N}
-    return get!(ctx.metadata, x, Cassette.recurse(ctx, f, x))::Node{T,N}
+    return get!(ctx.metadata.id, x, Cassette.recurse(ctx, f, x))::Node{T,N}
 end
+
+Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) = 
+    push!(ctx.metadata.hidden_outputs, x)
 
 # Get around Cassette bug with `reverse`
 Cassette.overdub(::SnoopCtx, ::typeof(reverse), args...) = reverse(args...)
@@ -65,57 +114,66 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) =
 Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) = 
     Cassette.overdub(ctx, _conv_impl, f, args...)
 
+Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) = 
+    Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
+
+compile(f, args...; kw...) = compile(Backend(), f, args...; kw...)
 """
     compile(backend, f, args..; optimizer = Inference()) -> Executable
 
 Trace and compile a Flux model `f` with `args`.
 """
 function compile(backend::Backend, f, args...; optimizer = Inference())
-    ctx = SnoopCtx(metadata = IdDict{Any,Node}())
+    ctx = SnoopCtx(metadata = SnoopMeta())
 
     # Extract the parameter from all the inputs
-    @time inputs = Node.(args)
+    inputs = Node.(args)
 
     # Perform traced execution on the function.
-    @time outputs = astuple(Cassette.overdub(ctx, f, inputs...))
+    outputs = astuple(Cassette.overdub(ctx, f, inputs...))
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
-    params = collect(values(ctx.metadata))
+    params = collect(values(ctx.metadata.id))
+    println("Found $(length(params)) params")
 
     arg_tuple = (
         inputs = inputs,
         outputs = outputs,
         params = params,
-        _id = ctx.metadata,
+        _id = ctx.metadata.id,
     )
-    @time opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
+    opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
 
     # Compile the executable
-    @time ex = compile(
+    hidden_outputs = ctx.metadata.hidden_outputs
+    ex = compile(
         backend, 
         ParameterVector(inputs..., opt_inputs...),
-        NodeVector(outputs..., opt_outputs...)
+        NodeVector(outputs..., hidden_outputs..., opt_outputs...)
     )
 
     # Create tensors for the outputs
-    @time tensors = map(x -> Tensor(backend, x), outputs) 
+    tensors = map(x -> Tensor(backend, x), outputs) 
+    hidden = map(x -> Tensor(backend, x), hidden_outputs)
 
-    return FluxExecutable(ex, opt, tensors)
+    return FluxExecutable(ex, opt, tensors, hidden)
 end
 
-struct FluxExecutable{T,V}
+struct FluxExecutable{T,V,H}
     ex::Executable
     optimizer::T
     outputs::V
+    hidden_outputs::H
 end
 
-recompile(fex::FluxExecutable) = FluxExecutable(recompile(fex.ex), fex.optimizer, fex.outputs)
+recompile(fex::FluxExecutable) = 
+    FluxExecutable(recompile(fex.ex), fex.optimizer, fex.outputs, fex.hidden_outputs)
 
 function (ex::FluxExecutable)(args...)
     inputs = Any[getpointer(i) for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
-    outputs = Any[getpointer(o) for o in Iterators.flatten((ex.outputs, getoutputs(ex.optimizer)))]
+    outputs = Any[getpointer(o) for o in Iterators.flatten((ex.outputs, ex.hidden_outputs, getoutputs(ex.optimizer)))]
     
     # Since we're passing wrapped type to C++, we have to cast them to Any's
     ex.ex(inputs, outputs)
@@ -206,9 +264,6 @@ end
 mutable struct SGDState
     inputs::Vector
     outputs::Vector
-    #backprops::Vector
-    #delta::Any
-    #output::Any
 end
 
 function create(sgd::SGD, backend, inputs, outputs, params)
@@ -223,46 +278,21 @@ function create(sgd::SGD, backend, inputs, outputs, params)
     # Create tensors for the parameters and gradients
     param_tensors = map(x -> Tensor(backend, x), params)
     update_tensors = map(x -> Tensor(backend, x), updates)
-    #backprop_tensors = map(x -> Tensor(backend, x), backprop_nodes)
-    #delta_tensor = Tensor(backend, delta)
-    #output_tensor = Tensor(backend, first(outputs))
 
     S = SGDState(
         param_tensors, 
         update_tensors, 
-        #backprop_tensors, 
-        #delta_tensor, 
-        #output_tensor
     )
 
     return (
         S, 
         params,
         updates
-        #Iterators.flatten((updates, backprop_nodes, (delta, first(outputs))))
     )
 end
 
 getinputs(S::SGDState) = S.inputs
-#getoutputs(S::SGDState) = Iterators.flatten((S.outputs, S.backprops, (S.delta, S.output)))
 getoutputs(S::SGDState) = S.outputs
 
 # Swap
-function update!(S::SGDState) 
-    # @show S.delta
-    # @show typeof(S.delta)
-    # @show S.output
-    # @show typeof(S.output)
-
-    # # Print out the average update amount
-    # for b in S.backprops
-    #     println(sum(abs, collect(b)))
-    # end
-    # println()
-    # for (i,o) in zip(S.inputs, S.outputs)
-    #     println(sum(abs, collect(i)))
-    #     println(sum(abs, collect(o)))
-    # end
-
-    (S.inputs, S.outputs) = (S.outputs, S.inputs)
-end
+update!(S::SGDState) = (S.inputs, S.outputs) = (S.outputs, S.inputs)

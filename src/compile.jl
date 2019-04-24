@@ -17,7 +17,7 @@ mutable struct Executable
 
     function Executable(ptr, ngraph_function::NFunction, backend::Backend)
         ex = new(ptr, ngraph_function, backend, false)
-        finalizer(_cleanup, ex)
+        #finalizer(_cleanup, ex)
         return ex
     end
 end
@@ -27,8 +27,8 @@ wraptype(::Executable) = HasPointer()
 function _cleanup(ex::Executable)
     # Don't try to remove an executable more than once if it was cleaned up elsewhere
     if ex.iscleared == false
-        Lib.remove_compiled_function(getpointer(ex.backend), getpointer(ex))
         ex.iscleared = true
+        Lib.remove_compiled_function(getpointer(ex.backend), getpointer(ex))
     end
 end
 

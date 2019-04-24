@@ -10,7 +10,6 @@ getpointer(x) = _ptr(x, wraptype(x))
 _ptr(x, ::IsPointer) = x
 _ptr(x, ::HasPointer) = x.ptr
 
-
 # This is kind of a gross way of mapping Julia types to ngraph types.
 # TODO: Think of a better way of doing this.
 const TYPEMAPS = (

@@ -335,6 +335,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_batchnorm_training", [](
+        const std::shared_ptr<ngraph::Node> input,
+        const std::shared_ptr<ngraph::Node> gamma,
+        const std::shared_ptr<ngraph::Node> beta,
+        double epsilon)
+    {
+        auto a = std::make_shared<ngraph::op::BatchNormTraining>(input, gamma, beta, epsilon);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_broadcast", [](
         const std::shared_ptr<ngraph::Node> &arg,
         const ngraph::Shape& shape,
@@ -381,6 +391,28 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_convolution_backprop_data", [](
+        const ngraph::Shape& data_batch_shape,
+        const std::shared_ptr<ngraph::Node>& filters,
+        const std::shared_ptr<ngraph::Node>& output_delta,
+        const ngraph::Strides& window_movement_strides_forward,
+        const ngraph::Strides& window_dilation_strides_forward,
+        const ngraph::CoordinateDiff& padding_below_forward,
+        const ngraph::CoordinateDiff& padding_above_forward,
+        const ngraph::Strides& data_dilation_strides_forward)
+    {
+        auto a = std::make_shared<ngraph::op::ConvolutionBackpropData>(
+            data_batch_shape,
+            filters,
+            output_delta,
+            window_movement_strides_forward,
+            window_dilation_strides_forward,
+            padding_below_forward,
+            padding_above_forward,
+            data_dilation_strides_forward);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_divide", [](
         const std::shared_ptr<ngraph::Node>& arg0,
         const std::shared_ptr<ngraph::Node>& arg1)
@@ -400,7 +432,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     mod.method("op_get_output_element", [](
         const std::shared_ptr<ngraph::Node>& arg,
-        int64_t n)
+        size_t n)
     {
         auto a = std::make_shared<ngraph::op::GetOutputElement>(arg, n);
         return std::dynamic_pointer_cast<ngraph::Node>(a);

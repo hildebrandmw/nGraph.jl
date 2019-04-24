@@ -18,6 +18,7 @@ Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

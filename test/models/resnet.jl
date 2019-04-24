@@ -21,8 +21,6 @@ function ResidualBlock(
         for i in 2:length(filters)
     ]
 
-    #push!(norm_layers, BatchNorm(filters[i]))
-    norm_layers = [identity for _ in 2:length(filters)]
 
     ResidualBlock(Tuple(conv_layers), Tuple(norm_layers), shortcut)
 end
@@ -46,7 +44,7 @@ end
 function (block::ResidualBlock)(input)
     value = input
     for i in 1:length(block.conv_layers)-1
-        value = relu.((block.norm_layers[i])((block.conv_layers[i])(value)))
+        value = relu.(block.norm_layers[i]((block.conv_layers[i])(value)))
     end
     relu.(((block.norm_layers[end])((block.conv_layers[end])(value))) + block.shortcut(input))
 end
@@ -72,13 +70,13 @@ function Bottleneck(filters::Int, downsample::Bool = false, res_top::Bool = fals
                     pad = (0,0),
                     stride = (1,1)
                 ),
-                #BatchNorm(4 * filters)
+                BatchNorm(4 * filters)
            )
         )
     else
         shortcut = Chain(
             Conv((1,1), 2 * filters=>4 * filters, pad = (0,0), stride = (2,2)),
-            #BatchNorm(4 * filters)
+            BatchNorm(4 * filters)
         )
         return ResidualBlock(
             [2 * filters, filters, filters, 4 * filters],
