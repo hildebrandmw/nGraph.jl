@@ -227,6 +227,11 @@ splice(source::Node, source_output, dest::Node, dest_input, x::Node) =
 
 input_needs_conversion(node::Node, i) = Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
 
+## Associates
+set_input_affinity(node::Node) = Lib.set_input_affinity(getpointer(node))
+set_output_affinity(node::Node) = Lib.set_output_affinity(getpointer(node))
+add_associate(node::Node, str::String) = Lib.add_associate(getpointer(node), str)
+
 #####
 ##### TensorDescriptor
 #####
@@ -443,6 +448,8 @@ wraptype(::NFunction) = HasPointer()
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(getpointer(f))
 get_results(f::NFunction) = Lib.get_results(getpointer(f))
 get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
+get_temporary_pool_size(f::NFunction) = Lib.get_temporary_pool_size(getpointer(f))
+get_pmem_pool_size(f::NFunction) = Lib.get_pmem_pool_size(getpointer(f))
 
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))

@@ -17,7 +17,7 @@ mutable struct Executable
 
     function Executable(ptr, ngraph_function::NFunction, backend::Backend)
         ex = new(ptr, ngraph_function, backend, false)
-        #finalizer(_cleanup, ex)
+        finalizer(_cleanup, ex)
         return ex
     end
 end

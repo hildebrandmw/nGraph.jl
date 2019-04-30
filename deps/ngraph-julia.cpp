@@ -276,7 +276,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     mod.add_type<ngraph::Function>("NFunction")
         .method("get_name", &ngraph::Function::get_name)
-        .method("get_parameters", &ngraph::Function::get_parameters);
+        .method("get_parameters", &ngraph::Function::get_parameters)
+        .method("get_temporary_pool_size", &ngraph::Function::get_temporary_pool_size)
+        .method("get_pmem_pool_size", &ngraph::Function::get_pmem_pool_size);
 
     mod.method("make_function", [](
             const ngraph::NodeVector& nodes,
@@ -652,6 +654,24 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.method("op_move", [](const std::shared_ptr<ngraph::Node> &arg, size_t n){
         auto a = std::make_shared<ngraph::op::Move>(arg, n);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+
+    mod.method("set_input_affinity", [](const std::shared_ptr<ngraph::Node>& node)
+    {
+        node->set_affinity(ngraph::NodeAffinity::AFFINITY_INPUT);
+    });
+
+    mod.method("set_output_affinity", [](const std::shared_ptr<ngraph::Node>& node)
+    {
+        node->set_affinity(ngraph::NodeAffinity::AFFINITY_OUTPUT);
+    });
+
+    mod.method("add_associate", [](
+        const std::shared_ptr<ngraph::Node>& node,
+        const std::string associate)
+    {
+        node->add_associate(associate);
     });
 
     // PMDK Stuff
