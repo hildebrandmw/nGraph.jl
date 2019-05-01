@@ -137,7 +137,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::descriptor::Tensor>("DescriptorTensor")
         .method("_sizeof", &ngraph::descriptor::Tensor::size)
         .method("get_name", &ngraph::descriptor::Tensor::get_name)
-        .method("set_pool_offset", &ngraph::descriptor::Tensor::set_pool_offset);
+        .method("set_pool_offset", &ngraph::descriptor::Tensor::set_pool_offset)
+        .method("get_pool_offset", &ngraph::descriptor::Tensor::get_pool_offset);
 
     ///// runtime::Tensor
     mod.add_type<ngraph::runtime::Tensor>("RuntimeTensor")

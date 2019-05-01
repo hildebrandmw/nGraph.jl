@@ -28,10 +28,10 @@ uuid = "9e28174c-4ba2-5203-b857-d8d62c4213ee"
 version = "0.8.10"
 
 [[BinaryProvider]]
-deps = ["Libdl", "Pkg", "SHA", "Test"]
-git-tree-sha1 = "055eb2690182ebc31087859c3dd8598371d3ef9e"
+deps = ["Libdl", "SHA"]
+git-tree-sha1 = "c7361ce8a2129f20b0e05a89f7070820cfed6648"
 uuid = "b99e7846-7c00-51b0-8f62-c81ae34c0232"
-version = "0.5.3"
+version = "0.5.4"
 
 [[CSTParser]]
 deps = ["LibGit2", "Test", "Tokenize"]
@@ -78,10 +78,10 @@ uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "2.1.0"
 
 [[CxxWrap]]
-deps = ["BinaryProvider", "Libdl", "Test"]
-git-tree-sha1 = "8da57ef9a68690903b0fc625e935b49f53ba58f9"
+deps = ["BinaryProvider", "Libdl"]
+git-tree-sha1 = "c7865f82d1ccfd98d11bba256bd22c27b5ca2864"
 uuid = "1f15a43c-97ca-5a2a-ae31-89f07a497df4"
-version = "0.8.1"
+version = "0.8.2"
 
 [[DataStructures]]
 deps = ["InteractiveUtils", "OrderedCollections", "Random", "Serialization", "Test"]
@@ -125,7 +125,7 @@ git-tree-sha1 = "75e5a6850ad9d6129773171d9ba66be899a515ec"
 repo-rev = "75e5a6850ad9d6129773171d9ba66be899a515ec"
 repo-url = "https://github.com/FluxML/Flux.jl.git"
 uuid = "587475ba-b771-5e3f-ad9e-33799f191a9c"
-version = "0.8.2+"
+version = "0.8.3+"
 
 [[ForwardDiff]]
 deps = ["CommonSubexpressions", "DiffResults", "DiffRules", "InteractiveUtils", "LinearAlgebra", "NaNMath", "Random", "SparseArrays", "SpecialFunctions", "StaticArrays", "Test"]
@@ -141,11 +141,11 @@ version = "1.2.0"
 
 [[IRTools]]
 deps = ["InteractiveUtils", "MacroTools", "Test"]
-git-tree-sha1 = "5c821a7fd699050763dd1dc623342c609ca68005"
+git-tree-sha1 = "59479696c252c1b1765fdba87cfbbbe857682746"
 repo-rev = "master"
 repo-url = "https://github.com/MikeInnes/IRTools.jl.git"
 uuid = "7869d1d1-7146-5819-86e3-90919afe41df"
-version = "0.1.2"
+version = "0.2.0"
 
 [[InteractiveUtils]]
 deps = ["Markdown"]
