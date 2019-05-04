@@ -22,7 +22,7 @@ end
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, x -> reshape(x, 1, :), X)
     Z = f(X)
-    @test reshape(x, 1, :) == collect(Z)
+    @test reshape(x, 1, :) == read(Z)
 
     # More extravagent reshape
     x = rand(Float32, 1, 2, 3, 4, 5, 6) 
@@ -34,7 +34,7 @@ end
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, g, X)
 
-    @test g(x) == collect(f(X))
+    @test g(x) == read(f(X))
 end
 
 @testset "Softmax" begin
@@ -47,7 +47,7 @@ end
 
     f = nGraph.compile(backend, softmax, X)
     Z = f(X)
-    @test isapprox(z, collect(Z))
+    @test isapprox(z, read(Z))
 
     # 2D case
     x = rand(Float32, 100, 100) 
@@ -56,5 +56,5 @@ end
 
     f = nGraph.compile(backend, softmax, X)
     Z = f(X)
-    @test isapprox(z, collect(Z))
+    @test isapprox(z, read(Z))
 end

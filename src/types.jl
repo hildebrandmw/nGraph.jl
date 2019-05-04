@@ -122,11 +122,10 @@ Backend(str::String = "CPU") = Backend(Lib.create(str))
 ##### Node
 #####
 
+# Subtype AbstractArray to get the AbstractArray fallbacks
 struct Node{T,N} <: AbstractArray{T, N}
     # CxxWrap std::shared_ptr to the actual backing node
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node,:St10shared_ptrIiE}
-    # Optional data if the node was created from an array
-    data::AbstractArray
 end
 wraptype(::Node) = HasPointer()
 
@@ -137,16 +136,12 @@ function Node(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node})
     return Node{T,N}(ptr)
 end
 
-Node{T,N}(ptr) where {T,N} = Node{T,N}(ptr, T[])
-
 Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
 function Node{T,N}(x::AbstractArray{T,N}) where {T,N}
-    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), x)
+    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))))
 end
 
-function Node{T}(x::T) where {T}
-    Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
-end
+Node{T}(x::T) where {T} = constant(x)
 
 Node(x::Node) = x
 Base.getindex(n::Node{T,N}, inds...) where {T,N} = zero(T)
@@ -268,104 +263,88 @@ get_pool_offset(T::TensorDescriptor) = Lib.get_pool_offset(getpointer(T))
 
 struct Persistent end
 
-struct Tensor{T,N} <: AbstractArray{T,N}
+mutable struct Tensor
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
+    ispersistent::Bool
 
-    function Tensor{T}(::UndefInitializer, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
+    function Tensor(::Type{T}, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_tensor(getpointer(backend), element, shape)
 
-        return new{T,N}(pointer)
-    end
-
-    function Tensor(backend::Backend, param::Node{T,N}) where {T,N}
-        shape = Shape(size(param))
-        pointer = Lib.create_tensor(getpointer(backend), Element(T), shape)
-
-        A = new{T,N}(pointer)
-        # Check if the node have any data attached to it. If so, copy it into the tensor
-        if size(param.data) == size(param)
-            A .= param.data
-        end
-        return A
+        return new(pointer, false)
     end
 
     # TODO: Find a way to break this out
-    function Tensor{T}(::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
+    function Tensor(::Type{T}, ::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_persistent_tensor(getpointer(backend), element, shape)
 
-        return new{T,N}(pointer)
+        return new(pointer, true)
     end
 end
+
+is_persistent(x::Tensor) = x.ispersistent
+
+Node(x::Tensor) = Node(Lib.op_parameter(
+    Lib.get_element_type(getpointer(x)), 
+    Lib.get_shape(getpointer(x)),
+))
+
 wraptype(::Tensor) = HasPointer()
 
-function Tensor(backend, x::T) where {T} 
-    t = Tensor{T}(undef, backend)
-    t[] = x
+Base.eltype(T::Tensor) = back(Lib.get_element_type(getpointer(T)))
+Base.sizeof(t::Tensor) = convert(Int, Lib.get_size_in_bytes(getpointer(t)))
+
+Tensor(backend, x::Tensor) = x
+Tensor(backend, x::T) where {T} = Tensor(T, backend)
+Tensor(backend, v::Node{T}) where {T} = Tensor(T, backend, size(v)...)
+function Tensor(backend, v::AbstractArray{T,N}) where {T,N} 
+    t = Tensor(T, backend, size(v)...)
+    write(t, v)
     return t
 end
 
-function Tensor(backend, v::AbstractArray{T,N}) where {T,N}
-    t = Tensor{T}(undef, backend, size(v)...)
-    t .= v
+function PersistentTensor(backend, v::AbstractArray{T,N}) where {T,N}
+    t = Tensor(T, Persistent(), backend, size(param)...)
+    write(t, v)
     return t
 end
 
-function PersistentTensor(backend, param::Node{T,N}, copy = false) where {T,N}
-    t = Tensor{T}(Persistent(), backend, size(param)...)
-    if copy
-        @assert size(param.data) == size(param)
-        t .= param.data
-    end
-    return t
-end
-
-function Base.size(t::Tensor{T,N}) where {T,N}
-    shape = Shape(getpointer(t))
-    @assert N == length(shape)
-
-    return ntuple(i -> shape[i], N)
-end
-
-Base.sizeof(t::Tensor{T,N}) where {T,N} = prod(size(t)) * sizeof(T)
-
-function Base.getindex(t::Tensor{T,N}, i) where {T,N} 
-    x = [zero(T)]
-    GC.@preserve x Lib.tensor_read(getpointer(t), Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(T)))
-    return first(x)
-end
-
-# Need to define this to get around the MKL buffer-overflow bug
-function Base.collect(t::Tensor{T,N}) where {T,N}
-    x = Array{T}(undef, size(t)...)
-    GC.@preserve x Lib.tensor_read(getpointer(t), Ptr{Cvoid}(pointer(x)), UInt64(0), UInt64(sizeof(x)))
-    return x
-end
-
-function Base.setindex!(t::Tensor{T,N}, v, i) where {T,N}
-    x = [convert(T, v)]
-    GC.@preserve x Lib.tensor_write(getpointer(t), Ptr{Cvoid}(pointer(x)), sizeof(T) * UInt64(i-1), UInt64(sizeof(x)))
+# Swap out the inner pointer for one allocated in persistent memory
+function make_persistent!(t::Tensor)
+    inner = Tensor(eltype(t), Persistent(), Backend(), size(t)...)
+    t.ptr = inner.ptr
     return nothing
 end
 
-# Speed up copying data to tensors
-function Base.materialize!(V::Tensor{T,N}, bc::Base.Broadcast.Broadcasted) where {T <: Union{Float32, Float64, Int32, Int64},N}
-    x = Base.materialize(bc)
-
-    # Just print an error for now. In the future, I need to figure out what's causing
-    # this and fix it in a better way
-    if sizeof(V) != sizeof(x)
-        @error "Unfixed size mismatch bug"
-    end
-
-    minsize = min(sizeof(V), sizeof(x))
-    GC.@preserve x Lib.tensor_write(getpointer(V), Ptr{Cvoid}(pointer(x)), zero(UInt64), convert(UInt64, minsize))
+function Base.size(t::Tensor)
+    shape = Shape(getpointer(t))
+    return ntuple(i -> shape[i], length(shape))
 end
 
-Base.IndexStyle(::Tensor) = Base.IndexLinear()
+function Base.write(t::Tensor, A::Array{T,N}) where {T,N}
+    @assert eltype(t) == T
+    GC.@preserve A Lib.tensor_write(
+        getpointer(t), 
+        Ptr{Cvoid}(pointer(A)), 
+        convert(UInt, 0),
+        convert(UInt, sizeof(A))
+    )
+end
+
+Base.read(t::Tensor) = _read(t, eltype(t), size(t))
+function _read(t::Tensor, ::Type{T}, dims::NTuple{N, Integer}) where {T,N}
+    A = Array{T,N}(undef, dims)
+    Lib.tensor_read(
+        getpointer(t),
+        Ptr{Cvoid}(pointer(A)),
+        convert(UInt, 0),
+        convert(UInt, sizeof(t)),
+    )
+    return A
+end
 
 #####
 ##### Adjoints
@@ -375,7 +354,7 @@ const Adjoints = Lib.AdjointsAllocated
 wraptype(::Adjoints) = IsPointer()
 
 Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
-backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, getpointer(x)), x)
+backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, getpointer(x)))
 
 #####
 ##### Parameters
@@ -449,7 +428,6 @@ wraptype(::NFunction) = HasPointer()
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(getpointer(f))
 get_results(f::NFunction) = Lib.get_results(getpointer(f))
 get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
-get_temporary_pool_size(f::NFunction) = Lib.get_temporary_pool_size(getpointer(f))
 get_pmem_pool_size(f::NFunction) = Lib.get_pmem_pool_size(getpointer(f))
 
 Base.length(f::NFunction) = Lib._length(f.ops)

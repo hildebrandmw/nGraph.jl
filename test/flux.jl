@@ -13,7 +13,7 @@
 
     Z = f(X)
 
-    collected_Z = collect(Z)
+    collected_Z = read(Z)
 
     @test size(expected) == size(collected_Z)
     @test isapprox(expected, collected_Z)
@@ -36,5 +36,5 @@ end
     f = nGraph.compile(backend, m, X)
     Z = f(X)
 
-    @test isapprox(expected, collect(Z))
+    @test isapprox(expected, read(Z))
 end

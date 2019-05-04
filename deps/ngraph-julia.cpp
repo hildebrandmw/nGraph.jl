@@ -142,8 +142,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     ///// runtime::Tensor
     mod.add_type<ngraph::runtime::Tensor>("RuntimeTensor")
-        .method("get_shape", &ngraph::runtime::Tensor::get_shape);
-
+        .method("get_shape", &ngraph::runtime::Tensor::get_shape)
+        .method("get_size_in_bytes", &ngraph::runtime::Tensor::get_size_in_bytes)
+        .method("get_element_type", &ngraph::runtime::Tensor::get_element_type)
+        .method("get_name", &ngraph::runtime::Tensor::get_name);
 
     // Read/write wrappers for tensor
     mod.method("tensor_write", [](
@@ -281,6 +283,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_temporary_pool_size", &ngraph::Function::get_temporary_pool_size)
         .method("get_pmem_pool_size", &ngraph::Function::get_pmem_pool_size);
 
+
+    mod.method("get_results", [](const std::shared_ptr<ngraph::Function> fn)
+    {
+        ngraph::ResultVector results = fn->get_results();
+        return NodeWrapper(results.begin(), results.end());
+    });
+
+
     mod.method("make_function", [](
             const ngraph::NodeVector& nodes,
             const ngraph::ParameterVector& parameters)
@@ -292,12 +302,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         std::list<std::shared_ptr<ngraph::Node>> node_list = func->get_ordered_ops();
         return NodeWrapper(node_list.begin(), node_list.end());
-    });
-
-    mod.method("get_results", [](const std::shared_ptr<ngraph::Function> func)
-    {
-        ngraph::ResultVector results = func->get_results();
-        return NodeWrapper(results.begin(), results.end());
     });
 
     /////

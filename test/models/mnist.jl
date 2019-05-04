@@ -21,13 +21,15 @@
         softmax,
     )
 
+
     backend = nGraph.Backend()
     x = rand(Float32, 28, 28, 1, 100)
+    expected = model(x)
     X = nGraph.Tensor(backend, x)
     f = nGraph.compile(backend, model, X)
 
     # Test that the forward passes match
-    @test isapprox(model(x), collect(f(X)))
+    @test isapprox(expected, read(f(X)))
 
     @time model(x)
     @time model(x)

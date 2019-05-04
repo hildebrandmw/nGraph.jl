@@ -11,5 +11,5 @@
 
     f = nGraph.compile(backend, Flux.crossentropy, X, Y)
 
-    @test isapprox(z, collect(f(X,Y))[])
+    @test isapprox(z, read(f(X,Y))[])
 end

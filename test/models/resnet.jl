@@ -127,7 +127,7 @@ end
     X = nGraph.Tensor(backend, x)
     ex = nGraph.compile(backend, f, X)
 
-    @test isapprox(collect(ex(X)), z)
+    @test isapprox(read(ex(X)), z)
     @time ex(X)
     @time ex(X)
 

@@ -23,7 +23,7 @@ function test_model()
 
     g = (x, y) -> Flux.crossentropy(_network(x), y)
 
-    f = nGraph.compile(backend, g, X, Y; optimizer = nGraph.SGD(Float32(0.001)))
+    f = nGraph.compile(backend, g, X, Y; optimizer = nGraph.SGD(Float32(0.000001)))
 
     # Return the arguments as a tuple so in the future, we can return multiple compiled
     # function arguments and still have downstream code work.

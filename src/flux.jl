@@ -1,22 +1,16 @@
-
-
 # Because julia-vim and YouCompleteMe don't get along
 _getsigma(x) = x.σ
 
 function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
     # We flip standard arrays since nGraph really perform cross-correlation
-    if flip_kernel(c.weight)
-        n = Node(c.weight)
-        flip!(n)
-        cn = NNlib.conv(
-            x, 
-            n;
-            stride = reverse(c.stride), 
-            pad = reverse(c.pad),
-            dilation = reverse(c.dilation))
-    else
-        cn = NNlib.conv(x, c.weight; stride = c.stride, pad = c.pad, dilation = c.dilation)
-    end
+    n = Node(c.weight)
+    __flip(n)
+    cn = NNlib.conv(
+        x,
+        n;
+        stride = reverse(c.stride),
+        pad = reverse(c.pad),
+        dilation = reverse(c.dilation))
 
     # Broadcast the bias along the first `N` dimensions and the last
     axis_set = [collect(1:N); N+2]
@@ -29,14 +23,14 @@ end
 # Again, getting around a Cassette issue
 _dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
 
-# TODO: ngraph makes the dictinction between training and inference. For now, we will 
+# TODO: ngraph makes the dictinction between training and inference. For now, we will
 # assume training, but eventually I can add a parameter to SnoopCtx that will determine
 # if we're training or inferring and pass that information here.
 function _batchnorm_impl(BN::Flux.BatchNorm, x::Node)
     # Create the batchnorm op and then do activation.
-    γ = Node(BN.γ) 
+    γ = Node(BN.γ)
     β = Node(BN.β)
-    
+
     n = batchnorm_training(x, γ, β, BN.ϵ)
 
     # The batchnorm_training op in ngraph returns a tuple
@@ -45,7 +39,7 @@ function _batchnorm_impl(BN::Flux.BatchNorm, x::Node)
     # We also have call `get_output_element` on the other two outputs so that downstream
     # graph rewriting in ngraph works correctly.
     #
-    # Also note that we have to `__register` the nodes so they become hidden outputs of the 
+    # Also note that we have to `__register` the nodes so they become hidden outputs of the
     # compiled ngraph graph. Otherwide, things break horribly
     a = get_output_element(n, 1)
     __register(get_output_element(n, 2))
@@ -56,9 +50,7 @@ end
 
 
 # Extend to unwrap tracked arrays
-function Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N}
-    return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))), Flux.data(x))
-end
+Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N} = Node{T,N}(x.data)
 
 # Methods defined to avoid method ambiguity in julia's dispatch
 Base.:*(x::TrackedArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
@@ -68,13 +60,9 @@ Base.:*(x::TrackedArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 # NOTE: nGraph's "convolution" is NNlib's crosscorrelation
 #
 # Need to flip the W and H dimensions of the filters
-flip!(n::Node) = flip!(n.data)
 function flip!(x::AbstractArray{T,N}) where {T,N}
     x .= view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...)
 end
-
-flip_kernel(x::AbstractArray) = true
-flip_kernel(x) = false
 
 #####
 ##### Cassette Magic
@@ -85,36 +73,50 @@ Cassette.@context SnoopCtx
 """
     __register(x::Node) -> Nothing
 
-By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers `x` as a 
+By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers `x` as a
 hidden output of a ngraph function.
 """
 __register(x::Node) = nothing
 
+"""
+    __flip(x::Node) -> Nothing
+
+By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers that the
+data for `x` should be flipped
+"""
+__flip(x::Node) = nothing
+
 struct SnoopMeta
-    id::IdDict{Any,Node}
-    hidden_outputs::Vector{Node}
+    parameters::IdDict{Any,Node}
+    data::IdDict{Node,AbstractArray}
+    secondary::Vector{Node}
 end
-SnoopMeta() = SnoopMeta(IdDict{Any,Node}(), Node[])
+SnoopMeta() = SnoopMeta(IdDict{Any,Node}(), IdDict{Node,AbstractArray}(), Node[])
 
 # Hijack Node constructors from TrackedArrays
 function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Flux.Tracker.TrackedArray) where {T,N}
-    return get!(ctx.metadata.id, x, Cassette.recurse(ctx, f, x))::Node{T,N}
+    node = get!(ctx.metadata.parameters, x, Cassette.recurse(ctx, f, x))::Node{T,N}
+    # Save the data in the tracked array for constructing tensors later.
+    get!(ctx.metadata.data, node, copy(x.data))
+    return node
 end
 
-Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) = 
-    push!(ctx.metadata.hidden_outputs, x)
+Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) =
+    push!(ctx.metadata.secondary, x)
+
+Cassette.overdub(ctx::SnoopCtx, ::typeof(__flip), x::Node) = flip!(ctx.metadata.data[x])
 
 # Get around Cassette bug with `reverse`
 Cassette.overdub(::SnoopCtx, ::typeof(reverse), args...) = reverse(args...)
 
 # Hijack these layers
-Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) = 
+Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) =
     Cassette.overdub(ctx, _dense_impl, f, args...)
 
-Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) = 
+Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
     Cassette.overdub(ctx, _conv_impl, f, args...)
 
-Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) = 
+Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
 
@@ -135,46 +137,60 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
-    params = collect(values(ctx.metadata.id))
+    params = collect(values(ctx.metadata.parameters))
+    data = [ctx.metadata.data[p] for p in params]
+
     println("Found $(length(params)) params")
 
     arg_tuple = (
         inputs = inputs,
         outputs = outputs,
         params = params,
-        _id = ctx.metadata.id,
+        data = data,
+        _id = ctx.metadata.parameters,
     )
     opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
 
     # Compile the executable
-    hidden_outputs = ctx.metadata.hidden_outputs
+    secondary_outputs = ctx.metadata.secondary
     ex = compile(
-        backend, 
+        backend,
         ParameterVector(inputs..., opt_inputs...),
-        NodeVector(outputs..., hidden_outputs..., opt_outputs...)
+        NodeVector(outputs..., secondary_outputs..., opt_outputs...)
     )
 
     # Create tensors for the outputs
-    tensors = map(x -> Tensor(backend, x), outputs) 
-    hidden = map(x -> Tensor(backend, x), hidden_outputs)
+    input_tensors = map(x -> Tensor(backend, x), args)
+    output_tensors = map(x -> Tensor(backend, x), outputs)
+    secondary_tensors = map(x -> Tensor(backend, x), secondary_outputs)
+    length(secondary_tensors) == 0 && (secondary_tensors = Tensor[])
 
-    return FluxExecutable(ex, opt, tensors, hidden)
+    return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
 end
 
-struct FluxExecutable{T,V,H}
+struct FluxExecutable{T,M,N}
     ex::Executable
     optimizer::T
-    outputs::V
-    hidden_outputs::H
+    inputs::NTuple{M,Tensor}
+    outputs::NTuple{N,Tensor}
+    secondary::Vector{Tensor}
 end
 
-recompile(fex::FluxExecutable) = 
-    FluxExecutable(recompile(fex.ex), fex.optimizer, fex.outputs, fex.hidden_outputs)
+recompile(fex::FluxExecutable) = FluxExecutable(
+    recompile(fex.ex),
+    fex.optimizer,
+    fex.inputs,
+    fex.outputs,
+    fex.secondary,
+)
 
-function (ex::FluxExecutable)(args...)
-    inputs = Any[getpointer(i) for i in Iterators.flatten((args, getinputs(ex.optimizer)))]
-    outputs = Any[getpointer(o) for o in Iterators.flatten((ex.outputs, ex.hidden_outputs, getoutputs(ex.optimizer)))]
-    
+_splat_inputs(fex::FluxExecutable) = Iterators.flatten((fex.inputs, getinputs(fex.optimizer)))
+_splat_outputs(fex::FluxExecutable) = Iterators.flatten((fex.outputs, fex.secondary, getoutputs(fex.optimizer)))
+
+function (ex::FluxExecutable)()
+    inputs = Any[getpointer(i) for i in _splat_inputs(ex)]
+    outputs = Any[getpointer(o) for o in _splat_outputs(ex)]
+
     # Since we're passing wrapped type to C++, we have to cast them to Any's
     ex.ex(inputs, outputs)
 
@@ -186,7 +202,7 @@ end
 ##### Optimizers
 #####
 
-create(f::Any, backend, args::NamedTuple) = create(f, backend, args.inputs, args.outputs, args.params)
+create(f::Any, backend, args::NamedTuple) = create(f, backend, args.inputs, args.outputs, args.params, args.data)
 
 # Inference 'Optimizer'
 struct Inference end
@@ -195,8 +211,8 @@ struct InferenceState
     tensors::Vector
 end
 
-function create(::Inference, backend, inputs, outputs, params)
-    I = InferenceState(map(x -> Tensor(backend, x), params))
+function create(::Inference, backend, inputs, outputs, params, data)
+    I = InferenceState(map(x -> Tensor(backend, x), data))
     return I, params, ()
 end
 
@@ -205,7 +221,7 @@ getoutputs(I::InferenceState) = ()
 update!(I::InferenceState) = nothing
 
 # Just get the Gradients
-struct Gradient 
+struct Gradient
     params::Vector
     gradients::Vector
     _id::IdDict
@@ -234,14 +250,14 @@ function create(::Type{Gradient}, backend, args::NamedTuple)
     gradients = [backprop_node(adjoints, n) for n in params]
 
     # Create tensors for the parameters and gradients
-    param_tensors = Tensor[] 
+    param_tensors = Tensor[]
     gradient_tensors = Tensor[]
     grad_map = IdDict()
     @info "Creating Tensors"
     for n in params
         pt = Tensor(backend, n)
         gt = Tensor(backend, n)
-        
+
         grad_map[id_rev[n]] = (pt, gt)
 
         push!(param_tensors, pt)
@@ -262,30 +278,28 @@ struct SGD{T <: Number}
 end
 
 mutable struct SGDState
-    inputs::Vector
-    outputs::Vector
+    inputs::Vector{Tensor}
+    outputs::Vector{Tensor}
 end
 
-function create(sgd::SGD, backend, inputs, outputs, params)
-
+function create(sgd::SGD, backend, inputs, outputs, params, data)
     # Create a backprop node for each parameter
-    delta = -constant(sgd.learning_rate) .* first(outputs)
-    adjoints = Adjoints(first(outputs), delta)
+    adjoints = Adjoints(first(outputs), -constant(sgd.learning_rate))
 
     backprop_nodes = [backprop_node(adjoints, n) for n in params]
     updates = [n + bn for (n, bn) in zip(params, backprop_nodes)]
 
     # Create tensors for the parameters and gradients
-    param_tensors = map(x -> Tensor(backend, x), params)
-    update_tensors = map(x -> Tensor(backend, x), updates)
+    param_tensors = map(x -> Tensor(backend, x), data)
+    update_tensors = map(x -> Tensor(backend, x), data)
 
     S = SGDState(
-        param_tensors, 
-        update_tensors, 
+        param_tensors,
+        update_tensors,
     )
 
     return (
-        S, 
+        S,
         params,
         updates
     )
