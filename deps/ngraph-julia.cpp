@@ -632,12 +632,31 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // The following two methods were taken from mkldnn_utils.cpp in the runtime/cpu
     mod.method("node_is_mkldnn_op", [](const std::shared_ptr<ngraph::Node>& node)
     {
-        auto op_annotations = std::static_pointer_cast<ngraph::op::Op>(node)->get_op_annotations();
-        return (op_annotations &&
-            std::static_pointer_cast<ngraph::runtime::cpu::CPUOpAnnotations>(op_annotations)
-                ->is_mkldnn_op());
+        // Convert to an "Op"
+        auto op_node = std::dynamic_pointer_cast<ngraph::op::Op>(node);
+        if (!op_node)
+        {
+            return false;
+        }
+
+        // Can be null
+        auto op_annotations = op_node->get_op_annotations();
+        if (!op_annotations)
+        {
+            return false;
+        }
+
+        // Might not be a CPU op
+        auto cpu_annotations = std::dynamic_pointer_cast<ngraph::runtime::cpu::CPUOpAnnotations>(op_annotations);
+        if (!cpu_annotations)
+        {
+            return false;
+        }
+
+        return cpu_annotations->is_mkldnn_op();
     });
 
+    // Assumes this is actually a mkldnn_op
     mod.method("node_set_mkldnn_op", [](const std::shared_ptr<ngraph::Node>& node)
     {
         auto ngraph_op = std::static_pointer_cast<ngraph::op::Op>(node);
@@ -646,12 +665,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         ngraph_op->set_op_annotations(op_annotations);
     });
 
-    mod.method("get_input_format_string", [](
+    mod.method("get_input_format_int", [](
         const std::shared_ptr<ngraph::Node>& node,
         size_t index)
     {
-        return ngraph::runtime::cpu::get_input_format_string(node, index);
+        return ngraph::runtime::cpu::get_input_format_int(node, index);
     });
+
+    mod.method("get_mkldnn_string", [](int64_t enum_int)
+    {
+        return ngraph::runtime::cpu::get_mkldnn_string(enum_int);
+    });
+
 
     // Graph Utils
     mod.method("my_insert_new_node_between", &ngraph::my_insert_new_node_between);

@@ -428,6 +428,7 @@ wraptype(::NFunction) = HasPointer()
 get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(getpointer(f))
 get_results(f::NFunction) = Lib.get_results(getpointer(f))
 get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
+get_temporary_pool_size(f::NFunction) = convert(Int, Lib.get_temporary_pool_size(getpointer(f)))
 get_pmem_pool_size(f::NFunction) = Lib.get_pmem_pool_size(getpointer(f))
 
 Base.length(f::NFunction) = Lib._length(f.ops)
