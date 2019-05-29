@@ -4,6 +4,8 @@ using Flux, Cassette
 import ProgressMeter
 import JSON
 
+export embedding
+
 using Dates
 
 const SRCDIR = @__DIR__

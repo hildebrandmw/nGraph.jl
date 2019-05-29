@@ -43,6 +43,15 @@ function back(x::Element)
 end
 
 #####
+##### Coordinate
+#####
+const Coordinate = Lib.CoordinateAllocated
+wraptype(::Coordinate) = IsPointer()
+
+Coordinate(x::Vector) = Lib.Coordinate(reverse(x))
+Coordinate(x::Tuple) = Coordinate(collect(x))
+
+#####
 ##### CoordinateDiff
 #####
 
@@ -144,7 +153,9 @@ end
 Node{T}(x::T) where {T} = constant(x)
 
 Node(x::Node) = x
-Base.getindex(n::Node{T,N}, inds...) where {T,N} = zero(T)
+Base.display(n::Node) = show(stdout, n)
+Base.show(io::IO, n::Node{T,N}) where {T,N} = 
+    println(io, "Node{$T, $N} with size: $(size(n))")
 
 function Base.size(n::Node{T,N}) where {T,N}
     shape = Lib.get_output_shape(getpointer(n), zero(UInt64))

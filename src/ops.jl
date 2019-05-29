@@ -21,11 +21,12 @@ end
 # operations
 _forward(f) = f
 _forward(::typeof(*)) = multiply
+_forward(::typeof(NNlib.σ)) = _sigmoid
 
 Base.broadcasted(f, x::Node, y::Node) = _forward(f)(expand(x,y)...)
 Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(expand(x, Node(y))...)
 Base.broadcasted(f, x::AbstractArray, y::Node) = _forward(f)(expand(Node(x), y)...)
-Base.broadcasted(f, x::Node) = f(x)
+Base.broadcasted(f, x::Node) = _forward(f)(x)
 
 Base.broadcasted(f, x::Node{T}, y::Number) where {T} = _forward(f)(expand(x, Node{T}(convert(T, y)))...)
 Base.broadcasted(f, x::Number, y::Node{T}) where {T} = _forward(f)(expand(Node{T}(convert(T, x)), y)...)
@@ -112,7 +113,7 @@ Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
 
 constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
 constant(x::AbstractArray{T,N}) where {T,N} =
-    Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), x))
+    Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
 
 #####
 ##### Convolution
@@ -181,6 +182,32 @@ dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} =
 Base.:*(w::Node, x::Node) = dot(w, x, 1)
 Base.:*(w::Node, x::AbstractArray) = w * Node(x)
 Base.:*(w::AbstractArray, x::Node) = Node(w) * x
+
+#####
+##### Embedding
+#####
+
+embedding(data::Node, weights::Node) = 
+    Node(Lib.op_embedding(getpointer(data), getpointer(weights)))
+
+#####
+##### Indexing
+#####
+
+_lb(i) = i
+_lb(::Colon) = 1
+
+_ub(bound, i) = i
+_ub(bound, ::Colon) = bound
+function Base.getindex(n::Node{T,N}, args...) where {T,N}
+    sz = size(n)
+    # Subtract 1 from the lower bound since the lower bounds are inclusive in ngraph.
+    # Leave the upper bounds as is since the upper-bounds are exclusive.
+    lb = Coordinate(map(_lb, args) .- 1)
+    ub = Coordinate(ntuple(i -> _ub(sz[i], args[i]), length(args)))
+
+    return Node(Lib.op_slice(getpointer.((n, lb, ub))... ))
+end
 
 #####
 ##### GetOutput
@@ -279,6 +306,12 @@ end
 result(x::T) where {T <: Node} = T(Lib.op_result(getpointer(x)))
 
 #####
+##### Sigmoid
+#####
+
+_sigmoid(x::N) where {N <: Node} = N(Lib.op_sigmoid(getpointer(x)))
+
+#####
 ##### Softmax
 #####
 
@@ -304,6 +337,23 @@ function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
     as = AxisSet(axes, N)
     node = Lib.op_sum(getpointer(x), as)
     return Node{T, N - length(axes)}(node)
+end
+
+#####
+##### Tanh
+#####
+
+Base.tanh(a::N) where {N <: Node} = N(Lib.op_tanh(getpointer(a)))
+
+#####
+##### Transpose
+#####
+
+function Base.transpose(a::Node{T,N}) where {T,N}
+    av = AxisVector(N:-1:1, N)
+    shape = Shape(reverse(size(a)))
+    node = Lib.op_reshape(getpointer(a), av, shape)
+    return Node{T,N}(node)
 end
 
 #######################################################################################

@@ -91,6 +91,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return ngraph::AxisVector(arr.begin(), arr.end());
     });
 
+    ///// Coordinate
+    mod.add_type<ngraph::Coordinate>("Coordinate");
+    mod.method("Coordinate", [](const jlcxx::ArrayRef<int64_t, 1> vals){
+        return ngraph::Coordinate(vals.begin(), vals.end());
+    });
+
     ///// CoordinateDiff
     mod.add_type<ngraph::CoordinateDiff>("CoordinateDiff");
     mod.method("CoordinateDiff", [](const jlcxx::ArrayRef<int64_t, 1> vals){
@@ -437,6 +443,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_embedding", [](
+        const std::shared_ptr<ngraph::Node>& data,
+        const std::shared_ptr<ngraph::Node>& weights)
+    {
+        auto a = std::make_shared<ngraph::op::EmbeddingLookup>(data, weights);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_get_output_element", [](
         const std::shared_ptr<ngraph::Node>& arg,
         size_t n)
@@ -534,6 +548,21 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_sigmoid", [](const std::shared_ptr<ngraph::Node>& arg)
+    {
+        auto a = std::make_shared<ngraph::op::Sigmoid>(arg);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_slice", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::Coordinate& lower_bounds,
+        const ngraph::Coordinate& upper_bounds)
+    {
+        auto a = std::make_shared<ngraph::op::Slice>(arg, lower_bounds, upper_bounds);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_softmax", [](
         const std::shared_ptr<ngraph::Node>& arg,
         const ngraph::AxisSet& axes)
@@ -557,6 +586,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         auto a = std::make_shared<ngraph::op::Sum>(arg, reduction_axes);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
+
+    mod.method("op_tanh", [](const std::shared_ptr<ngraph::Node>& arg)
+    {
+        auto a = std::make_shared<ngraph::op::Tanh>(arg);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
 
     /////
     ///// Executable
