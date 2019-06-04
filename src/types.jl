@@ -89,6 +89,22 @@ wraptype(::Strides) = IsPointer()
 Strides(x::Vector) = Lib.Strides(x)
 Strides(x::Tuple) = Strides(collect(x))
 
+##### 
+##### Nodes
+#####
+
+const NodeVector = Union{Lib.NodeVectorAllocated, Lib.NodeVectorRef}
+wraptype(::NodeVector) = IsPointer()
+
+NodeVector(x, args...) = NodeVector((x, args...))
+function NodeVector(args::Union{Tuple,Vector})
+    p = Lib.NodeVector()
+    for arg in args
+        Lib.push!(p, getpointer(arg))
+    end
+    return p
+end
+
 #####
 ##### AxisSet
 #####
@@ -128,9 +144,10 @@ Backend(str::String = "CPU") = Backend(Lib.create(str))
 
 
 #####
-##### Node
+##### Nodes
 #####
 
+### Typed nodes for automatic sizing and typing
 # Subtype AbstractArray to get the AbstractArray fallbacks
 struct Node{T,N} <: AbstractArray{T, N}
     # CxxWrap std::shared_ptr to the actual backing node
@@ -163,66 +180,87 @@ function Base.size(n::Node{T,N}) where {T,N}
 
     return ntuple(i -> shape[i], N)
 end
-
-# Forwards
-name(N::Node) = Lib.get_name(getpointer(N))
-description(N::Node) = Lib.description(getpointer(N))
 Base.IndexStyle(::Node) = Base.IndexLinear()
+
+# Base Methods
+Base.axes(n::Node) = map(Base.OneTo, size(n))
+Base.ndims(n::Node{T,N}) where {T,N} = N
+
+
+### Untyped Node Descriptor for just manipulating nodes
+struct NodeDescriptor
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node,:St10shared_ptrIiE}
+end
+wraptype(::NodeDescriptor) = HasPointer()
+NodeDescriptor(N::Node) = NodeDescriptor(getpointer(N))
+Node(N::NodeDescriptor) = Node(getpointer(N))
+
+Base.show(io::IO, n::NodeDescriptor) = print(io, name(n))
+
+rawptr(n::NodeDescriptor) = getpointer(n)[]
+Base.:(==)(n::NodeDescriptor, m::NodeDescriptor) = rawptr(n) == rawptr(m)
+Base.hash(n::NodeDescriptor, h::UInt = UInt(0x4029388)) = hash(rawptr(n), h)
+
+
+### Operations on Node and NodeDescriptor
+# Forwards
+const NodeLike = Union{Node, NodeDescriptor}
+name(N::NodeLike) = Lib.get_name(getpointer(N))
+description(N::NodeLike) = Lib.description(getpointer(N))
 
 # Output sizes etc. are dealt with in the node's type signature.
 # Here, we deal with inputs
-get_input_size(N::Node) = Lib.get_input_size(getpointer(N))
-get_input_element_type(N::Node, i) = 
+get_input_size(N::NodeLike) = Lib.get_input_size(getpointer(N))
+get_input_element_type(N::NodeLike, i) = 
     back(Lib.get_input_element_type(getpointer(N), convert(UInt, i-1)))
-function get_input_shape(N::Node, i)
+function get_input_shape(N::NodeLike, i)
     shape = Lib.get_input_shape(getpointer(N), convert(UInt, i-1))
     return ntuple(i -> shape[i], length(shape))
 end
 
 # Get input and output nodes.
-get_input(N::Node, i) = Node(Lib.get_input_node(getpointer(N), convert(Int, i-1)))
-get_inputs(N::Node) = [get_input(N,i) for i in 1:Lib.get_input_size(getpointer(N))]
+get_input(N::NodeLike, i) = Node(Lib.get_input_node(getpointer(N), convert(Int, i-1)))
+get_inputs(N::NodeLike) = [get_input(N,i) for i in 1:Lib.get_input_size(getpointer(N))]
 
-get_output_size(N::Node) = Lib.get_output_size(getpointer(N))
-get_output_element_type(N::Node, i) = 
+get_output_size(N::NodeLike) = Lib.get_output_size(getpointer(N))
+get_output_element_type(N::NodeLike, i) = 
     back(Lib.get_output_element_type(getpointer(N), convert(UInt, i-1)))
 
-function get_output_shape(N::Node, i)
+function get_output_shape(N::NodeLike, i)
     shape = Lib.get_output_shape(getpointer(N), convert(UInt, i-1))
     return ntuple(i -> shape[i], length(shape))
 end
 
-get_output(N::Node, i) = Lib.get_output_nodes(getpointer(N), convert(Int, i-1))
-get_outputs(N::Node) = [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))]
+get_output(N::NodeLike, i) = Lib.get_output_nodes(getpointer(N), convert(Int, i-1))
+get_outputs(N::NodeLike) = [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))]
 
 """
     copy(node::Node, args::NodeVector)
 
 Construct a copy of `N` with `args` as input arguments.
 """
-Base.copy(node::Node{T,N}, args) where {T,N} = Node{T,N}(Lib.copy_with_new_args(getpointer(node), args))
+Base.copy(node::T, args) where {T <: NodeLike} = 
+    T(Lib.copy_with_new_args(getpointer(node), convert(NodeVector, args)))
 
-# Base Methods
-Base.axes(n::Node) = map(Base.OneTo, size(n))
-Base.ndims(n::Node{T,N}) where {T,N} = N
+Base.convert(::Type{NodeVector}, v::Vector{Node}) = NodeVector(v)
+
 
 # Get TensorDescriptors
-output_descriptors(N::Node) = [output_descriptor(N, i) for i in 1:get_output_size(N)]
-output_descriptor(N::Node, i) = 
+outputs(N::NodeLike) = [output(N, i) for i in 1:get_output_size(N)]
+output(N::NodeLike, i) = 
     TensorDescriptor(Lib.get_output_tensor_ptr(getpointer(N), convert(Int, i-1)))
 
-
-input_descriptors(N::Node) = [input_descriptor(N, i) for i in 1:get_input_size(N)]
-input_descriptor(N::Node, i) = 
+inputs(N::NodeLike) = [input(N, i) for i in 1:get_input_size(N)]
+input(N::NodeLike, i) = 
     TensorDescriptor(Lib.get_input_tensor_ptr(getpointer(N), convert(Int, i-1)))
 
-copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(getpointer(n), args))
-copy_with_new_args(n::Node, args::Vector) = copy_with_new_args(n, NodeVector(args))
+#copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(getpointer(n), args))
+#copy_with_new_args(n::Node, args::Vector) = copy_with_new_args(n, NodeVector(args))
 
-is_mkldnn(n::Node) = Lib.node_is_mkldnn_op(getpointer(n))
-set_mkldnn(n::Node) = Lib.node_set_mkldnn_op(getpointer(n))
+is_mkldnn(n::NodeLike) = Lib.node_is_mkldnn_op(getpointer(n))
+set_mkldnn(n::NodeLike) = Lib.node_set_mkldnn_op(getpointer(n))
 
-splice(source::Node, source_output, dest::Node, dest_input, x::Node) = 
+splice(source::NodeLike, source_output, dest::NodeLike, dest_input, x::NodeLike) = 
     Lib.my_insert_new_node_between(
         getpointer(source), 
         convert(UInt, source_output - 1),
@@ -231,42 +269,12 @@ splice(source::Node, source_output, dest::Node, dest_input, x::Node) =
         getpointer(x)
    )
 
-input_needs_conversion(node::Node, i) = Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
+input_needs_conversion(node::NodeLike, i) = Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
 
 ## Associates
-set_input_affinity(node::Node) = Lib.set_input_affinity(getpointer(node))
-set_output_affinity(node::Node) = Lib.set_output_affinity(getpointer(node))
-add_associate(node::Node, str::String) = Lib.add_associate(getpointer(node), str)
-
-#####
-##### TensorDescriptor
-#####
-
-struct TensorDescriptor
-    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.DescriptorTensor,:St10shared_ptrIiE}
-end
-wraptype(::TensorDescriptor) = HasPointer()
-
-# Here, we take advantage (hope) of the unique name for each tensor to get a unique
-# identifies
-Base.:(==)(a::TensorDescriptor, b::TensorDescriptor) = get_name(a) == get_name(b)
-Base.hash(x::TensorDescriptor, h::UInt = UInt(0x10984)) = hash(get_name(x), h)
-
-function Base.show(io::IO, T::TensorDescriptor) 
-    println(io, "Tensor Descriptor")
-    println(io, "    Name: $(get_name(T))")
-    println(io, "    Is Persistent: $(is_persistent(T))")
-end
-
-make_persistent(T::TensorDescriptor) = Lib.make_persistent(getpointer(T))
-make_volatile(T::TensorDescriptor) = Lib.make_volatile(getpointer(T))
-is_persistent(T::TensorDescriptor) = Lib.is_persistent(getpointer(T))
-Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(getpointer(T)))
-get_name(T::TensorDescriptor) = Lib.get_name(getpointer(T))
-
-# Set pool offsets back to zero
-reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(getpointer(T), convert(UInt, 0))
-get_pool_offset(T::TensorDescriptor) = Lib.get_pool_offset(getpointer(T))
+set_input_affinity(node::NodeLike) = Lib.set_input_affinity(getpointer(node))
+set_output_affinity(node::NodeLike) = Lib.set_output_affinity(getpointer(node))
+add_associate(node::NodeLike, str::String) = Lib.add_associate(getpointer(node), str)
 
 #####
 ##### Tensor
@@ -386,21 +394,6 @@ Base.length(P::ParameterVector) = Lib._length(P)
 Base.getindex(P::ParameterVector, i) = Node(Lib._getindex(P, convert(Int64, i-1)))
 Base.iterate(P, s = 1) = (s > length(P)) ? nothing : (P[s], s+1)
 
-##### 
-##### Nodes
-#####
-
-const NodeVector = Union{Lib.NodeVectorAllocated, Lib.NodeVectorRef}
-wraptype(::NodeVector) = IsPointer()
-
-NodeVector(x, args...) = NodeVector((x, args...))
-function NodeVector(args::Union{Tuple,Vector})
-    p = Lib.NodeVector()
-    for arg in args
-        Lib.push!(p, getpointer(arg))
-    end
-    return p
-end
 
 #####
 ##### NodeWrapper
@@ -451,3 +444,36 @@ Base.iterate(f::NFunction, s = 1) = (s <= length(f)) ? (f[s], s+1) : nothing
 # Allow reverse iterations
 Base.reverse(f::NFunction) = Iterators.reverse(f)
 Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) = (s == 0) ? nothing : (f.itr[s], s-1)
+
+#####
+##### Low level handles for dealing with objects
+#####
+
+# Tensor Descriptor
+struct TensorDescriptor
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.DescriptorTensor,:St10shared_ptrIiE}
+end
+wraptype(::TensorDescriptor) = HasPointer()
+
+# Here, we take advantage (hope) of the unique name for each tensor to get a unique
+# identifies
+rawptr(a::TensorDescriptor) = getpointer(a)[]
+Base.:(==)(a::TensorDescriptor, b::TensorDescriptor) = rawptr(a) == rawptr(b)
+Base.hash(x::TensorDescriptor, h::UInt = UInt(0x10984)) = hash(rawptr(x), h)
+
+function Base.show(io::IO, T::TensorDescriptor) 
+    println(io, "Tensor Descriptor")
+    println(io, "    Name: $(name(T))")
+    println(io, "    Is Persistent: $(is_persistent(T))")
+end
+
+make_persistent(T::TensorDescriptor) = Lib.make_persistent(getpointer(T))
+make_volatile(T::TensorDescriptor) = Lib.make_volatile(getpointer(T))
+is_persistent(T::TensorDescriptor) = Lib.is_persistent(getpointer(T))
+Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(getpointer(T)))
+name(T::TensorDescriptor) = Lib.get_name(getpointer(T))
+
+# Set pool offsets back to zero
+reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(getpointer(T), convert(UInt, 0))
+get_pool_offset(T::TensorDescriptor) = Lib.get_pool_offset(getpointer(T))
+
