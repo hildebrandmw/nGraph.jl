@@ -104,7 +104,9 @@ end
 Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) =
     push!(ctx.metadata.secondary, x)
 
-Cassette.overdub(ctx::SnoopCtx, ::typeof(__flip), x::Node) = flip!(ctx.metadata.data[x])
+# If this was not an implicitly created kernel, it won't have a registered entry in 
+# ctx.metadata.data, so do nothing
+Cassette.overdub(ctx::SnoopCtx, ::typeof(__flip), x::Node) = haskey(ctx.metadata.data, x) && flip!(ctx.metadata.data[x])
 
 # Get around Cassette bug with `reverse`
 Cassette.overdub(::SnoopCtx, ::typeof(reverse), args...) = reverse(args...)
@@ -121,6 +123,7 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
 
 
 compile(f, args...; kw...) = compile(Backend(), f, args...; kw...)
+
 """
     compile(backend, f, args..; optimizer = Inference()) -> Executable
 
