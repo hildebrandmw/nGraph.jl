@@ -33,6 +33,10 @@ function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector)
 
     # Get the post-compiled ops for the function.
     get_ordered_ops!(ngraph_function)
+
+    # Indicate that the compiler has been invoked.
+    global __HAVE_COMPILED[] = true
+
     return Executable(pointer, ngraph_function, backend)
 end
 
