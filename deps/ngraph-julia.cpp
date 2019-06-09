@@ -722,6 +722,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_moveasync", [](
+        const std::shared_ptr<ngraph::Node> &arg,
+        size_t n,
+        const std::string across)
+    {
+        auto a = std::make_shared<ngraph::op::MoveAsync>(arg, n, across);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
 
     mod.method("set_input_affinity", [](const std::shared_ptr<ngraph::Node>& node)
     {

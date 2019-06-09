@@ -361,5 +361,9 @@ end
 # Custom ops
 move(x::T, output = 1) where {T <: Node} = T(Lib.op_move(getpointer(x), convert(UInt, output-1)))
 
+moveasync(x::T, across::Node) where {T <: Node} = moveasync(x, 1, across)
+moveasync(x::T, output, across::Node) where {T <: Node} = 
+    T(Lib.op_moveasync(getpointer(x), convert(UInt, output-1), name(across)))
+
 convert_layout_to(x::Node, y::Node, i) =
     Node(Lib.op_cpu_convert_layout_to(getpointer(x), getpointer(y), convert(Int, i-1)))
