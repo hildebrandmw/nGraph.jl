@@ -177,6 +177,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args)
+        .method("add_control_dependency", &ngraph::Node::add_control_dependency)
         ///// Outputs
         // Return the number of outputs for the op
         .method("get_output_size", &ngraph::Node::get_output_size)
@@ -725,10 +726,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.method("op_moveasync", [](
         const std::shared_ptr<ngraph::Node> &arg,
         size_t n,
-        const std::string across)
+        const std::shared_ptr<ngraph::Node> &across)
     {
         auto a = std::make_shared<ngraph::op::MoveAsync>(arg, n, across);
-        return std::dynamic_pointer_cast<ngraph::Node>(a);
+        auto b = std::dynamic_pointer_cast<ngraph::Node>(a);
+
+        // Set up control dependencies
+        across->add_control_dependency(arg);
+        b->add_control_dependency(across);
+        return b;
     });
 
 

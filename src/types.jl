@@ -326,7 +326,7 @@ function Tensor(backend, v::AbstractArray{T,N}) where {T,N}
 end
 
 function PersistentTensor(backend, v::AbstractArray{T,N}) where {T,N}
-    t = Tensor(T, Persistent(), backend, size(param)...)
+    t = Tensor(T, Persistent(), backend, size(v)...)
     write(t, v)
     return t
 end
