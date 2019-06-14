@@ -38,6 +38,7 @@ LOAD_FLAGS+= -L$(CXXWRAP_HOME)/lib/ -Wl,-rpath,$(CXXWRAP_HOME)/lib -lcxxwrap_jul
 #LOAD_FLAGS+= -L${mkfile_dir}/ngraph/build/pmdk/lib/ -Wl,-rpath,${mkfile_dir}/ngraph/build/pmdk/lib -lpmemobj -lpmem
 LOAD_FLAGS+= -L$(mkfile_dir)usr/lib -Wl,-rpath,$(mkfile_dir)usr/lib -lngraph #-lcpu_backend
 
+.PHONY: all
 all: libngraph-julia.so
 
 libngraph-julia.so: ngraph-julia.cpp ${mkfile_dir}usr/lib/libngraph.so
