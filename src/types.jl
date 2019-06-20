@@ -445,6 +445,8 @@ Base.iterate(f::NFunction, s = 1) = (s <= length(f)) ? (f[s], s+1) : nothing
 Base.reverse(f::NFunction) = Iterators.reverse(f)
 Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) = (s == 0) ? nothing : (f.itr[s], s-1)
 
+Base.copy(f::NFunction) = NFunction(Lib.clone_function(getpointer(f)))
+
 #####
 ##### Low level handles for dealing with objects
 #####

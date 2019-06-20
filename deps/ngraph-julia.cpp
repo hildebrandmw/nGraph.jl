@@ -311,6 +311,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return NodeWrapper(node_list.begin(), node_list.end());
     });
 
+    mod.method("clone_function", [](const std::shared_ptr<ngraph::Function> func)
+    {
+        return ngraph::clone_function(*func.get());
+    });
+
     /////
     ///// Adjoint
     /////

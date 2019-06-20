@@ -27,8 +27,10 @@ mutable struct Executable
 end
 wraptype(::Executable) = HasPointer()
 
-function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector)
-    ngraph_function = NFunction(outputs, inputs)
+compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector) = 
+    compile(backend::Backend, NFunction(outputs, inputs))
+
+function compile(backend::Backend, ngraph_function::NFunction)
     pointer = Lib.compile(getpointer(backend), getpointer(ngraph_function), false)
 
     # Get the post-compiled ops for the function.
@@ -36,7 +38,6 @@ function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector)
 
     # Indicate that the compiler has been invoked.
     global __HAVE_COMPILED[] = true
-
     return Executable(pointer, ngraph_function, backend)
 end
 
@@ -49,7 +50,7 @@ end
 
 WARNING: Don't call ANY previous executables after calling this function.
 """
-function recompile(ex::Executable)
+function recompile(ex::Executable, fn = ex.ngraph_function)
     backend = ex.backend
 
     # Assume we're working in the same directory as the "cpu_codegen" directory.
@@ -58,9 +59,9 @@ function recompile(ex::Executable)
     ispath("./cpu_codegen") && rm("./cpu_codegen"; recursive = true) 
 
     pointer = withenv("NGRAPH_PASS_HACK" => true) do
-        Lib.compile(getpointer(backend), getpointer(ex.ngraph_function), false)
+        Lib.compile(getpointer(backend), getpointer(fn), false)
     end
     get_ordered_ops!(ex.ngraph_function)
 
-    return Executable(pointer, ex.ngraph_function, backend)
+    return Executable(pointer, fn, backend)
 end
