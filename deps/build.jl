@@ -51,9 +51,10 @@ cmake_args = [
 # Add additional parameters
 parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
 parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
+parameters["GPU"] && push!(cmake_args, "-DNGRAPH_GPU_ENABLE=TRUE")
 
 run(`cmake .. $cmake_args`)
-run(`make -j all`)
+run(`make -j 5`)
 run(`make install`)
 
 cd(current_dir)

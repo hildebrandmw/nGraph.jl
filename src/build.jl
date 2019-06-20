@@ -3,6 +3,7 @@
 const DEFAULTS = (
     # Build nGraph with PMDK
     PMDK = EXPERIMENTAL,
+    GPU = false,
     # Build nGraph in debug mode
     DEBUG = false,
 )

@@ -10,10 +10,7 @@ function _network(x)
     return softmax(Dense(size(y, 1), 10, relu)(y))
 end
 
-function test_model()
-    # Instantiate the nGraph backend object
-    backend = nGraph.Backend()
-
+function test_model(backend = nGraph.Backend())
     batchsize = 8
     nchannels = 16
 
