@@ -4,4 +4,5 @@
 /docs/build
 /deps
 cpu_codegen/
+gpu_codegen/
 tags

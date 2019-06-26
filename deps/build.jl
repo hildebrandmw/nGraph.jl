@@ -54,7 +54,7 @@ parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 parameters["GPU"] && push!(cmake_args, "-DNGRAPH_GPU_ENABLE=TRUE")
 
 run(`cmake .. $cmake_args`)
-run(`make -j 5`)
+run(`make -j all`)
 run(`make install`)
 
 cd(current_dir)

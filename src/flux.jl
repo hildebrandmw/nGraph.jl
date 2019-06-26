@@ -129,7 +129,7 @@ compile(f, args...; kw...) = compile(Backend(), f, args...; kw...)
 
 Trace and compile a Flux model `f` with `args`.
 """
-function compile(backend::Backend, f, args...; optimizer = Inference())
+function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
     ctx = SnoopCtx(metadata = SnoopMeta())
 
     # Extract the parameter from all the inputs
@@ -159,7 +159,8 @@ function compile(backend::Backend, f, args...; optimizer = Inference())
     ex = compile(
         backend,
         ParameterVector(inputs..., opt_inputs...),
-        NodeVector(outputs..., secondary_outputs..., opt_outputs...)
+        NodeVector(outputs..., secondary_outputs..., opt_outputs...);
+        kw...
     )
 
     # Create tensors for the outputs

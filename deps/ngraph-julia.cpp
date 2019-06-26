@@ -23,6 +23,11 @@
 #include "ngraph/runtime/cpu/op/convert_layout.hpp"
 #include "ngraph/runtime/cpu/op/move.hpp"
 
+// GPU Related Stuff
+#include "ngraph/runtime/gpu/gpu_backend.hpp"
+#include "ngraph/runtime/gpu/gpu_helper.hpp"
+//#include "ngraph/runtime/gpu/gpu_op_annotations.hpp"
+
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
 #endif
@@ -288,7 +293,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_name", &ngraph::Function::get_name)
         .method("get_parameters", &ngraph::Function::get_parameters)
         .method("get_temporary_pool_size", &ngraph::Function::get_temporary_pool_size)
-        .method("get_pmem_pool_size", &ngraph::Function::get_pmem_pool_size);
+        .method("get_pmem_pool_size", &ngraph::Function::get_pmem_pool_size)
+        .method("set_jl_callback", &ngraph::Function::set_jl_callback)
+        .method("clear_jl_callback", &ngraph::Function::clear_jl_callback)
+        .method("get_jl_callback", &ngraph::Function::get_jl_callback)
+        .method("has_jl_callback", &ngraph::Function::has_jl_callback);
 
 
     mod.method("get_results", [](const std::shared_ptr<ngraph::Function> fn)
@@ -759,6 +768,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         node->add_associate(associate);
     });
+
+    /////
+    ///// GPU Ops
+    /////
+    
+    mod.add_type<ngraph::runtime::gpu::GPU_Backend::BackendContext>("GPUBackendContext");
 
     // PMDK Stuff
 #ifdef NGRAPH_PMDK_ENABLE

@@ -415,16 +415,17 @@ mutable struct NFunction
     #
     # TODO: Find a way to make this not happen.
     ops::Lib.NodeWrapperAllocated
+    callback::Any
 
     function NFunction(nodes::Lib.NodeVectorAllocated, params::Lib.ParameterVectorAllocated)
         ptr = Lib.make_function(nodes, params) 
         ops = Lib.get_ordered_ops(ptr)
-        return new(ptr, ops)
+        return new(ptr, ops, nothing)
     end
 
     function NFunction(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.NFunction,:St10shared_ptrIiE})
         ops = Lib.get_ordered_ops(ptr)
-        return new(ptr, ops)
+        return new(ptr, ops, nothing)
     end
 end
 wraptype(::NFunction) = HasPointer()
