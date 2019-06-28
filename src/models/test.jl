@@ -11,11 +11,11 @@ function _network(x)
 end
 
 function test_model(backend = nGraph.Backend(); kw...)
-    batchsize = 8
-    nchannels = 16
+    batchsize = 64
+    nchannels = 128
 
     # Create a nGraph tensor
-    X = nGraph.Tensor(backend, rand(Float32, 20, 20, nchannels, batchsize))
+    X = nGraph.Tensor(backend, rand(Float32, 14, 14, nchannels, batchsize))
     Y = nGraph.Tensor(backend, rand(Float32, 10))
 
     g = (x, y) -> Flux.crossentropy(_network(x), y)

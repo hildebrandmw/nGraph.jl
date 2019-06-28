@@ -24,9 +24,8 @@
 #include "ngraph/runtime/cpu/op/move.hpp"
 
 // GPU Related Stuff
-#include "ngraph/runtime/gpu/gpu_backend.hpp"
+//#include "ngraph/runtime/gpu/gpu_backend.hpp"
 #include "ngraph/runtime/gpu/gpu_helper.hpp"
-//#include "ngraph/runtime/gpu/gpu_op_annotations.hpp"
 
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
@@ -773,7 +772,43 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// GPU Ops
     /////
     
-    mod.add_type<ngraph::runtime::gpu::GPU_Backend::BackendContext>("GPUBackendContext");
+    mod.method("can_select_algo", [](const std::shared_ptr<ngraph::Node>& node)
+    {
+        return  ngraph::runtime::gpu::can_select_algo(node);
+    });
+    mod.method("get_algo_options", [](
+        const std::shared_ptr<ngraph::Node>& node,
+        jlcxx::ArrayRef<uint32_t> algo_numbers,
+        jlcxx::ArrayRef<float> timings,
+        jlcxx::ArrayRef<size_t> memories)
+    {
+        // Constructing a julia array directly did not seem to work super well ...
+        //
+        // The simplest way would bw to just construct a vector of tuples, but it gets
+        // horribly mangled when transferring over into Julia, and I don't really feel
+        // like debugging that.
+        auto options = ngraph::runtime::gpu::get_algo_options(node);
+        for (auto i: options)
+        {
+            // Unpack tuple
+            uint32_t algo;
+            float time;
+            size_t memory;
+            std::tie(algo, time, memory) = i;
+
+            algo_numbers.push_back(algo);
+            timings.push_back(time);
+            memories.push_back(memory);
+        }
+    });
+
+    mod.method("set_algo", [](
+        const std::shared_ptr<ngraph::Node>& node,
+        size_t algo,
+        size_t workspace_size)
+    {
+        ngraph::runtime::gpu::set_algo(node, algo, workspace_size); 
+    });
 
     // PMDK Stuff
 #ifdef NGRAPH_PMDK_ENABLE
