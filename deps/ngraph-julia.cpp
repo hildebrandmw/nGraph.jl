@@ -24,6 +24,7 @@
 #include "ngraph/runtime/cpu/op/move.hpp"
 
 // GPU Related Stuff
+#include "ngraph/runtime/performance_counter.hpp"
 //#include "ngraph/runtime/gpu/gpu_backend.hpp"
 #include "ngraph/runtime/gpu/gpu_helper.hpp"
 
@@ -73,12 +74,52 @@ int64_t NodeWrapper::_length()
 }
 
 /////
+///// Class for extracting performance data from GPU Backend
+/////
+
+class PerfCounterTranslator
+{
+    public:
+        PerfCounterTranslator(std::shared_ptr<ngraph::runtime::Executable>& exe);
+        int64_t _length();
+        std::tuple<std::string, size_t>  _getindex(int64_t i);
+
+    private:
+        std::vector<ngraph::runtime::PerformanceCounter> m_counters;
+};
+
+// Implementation
+PerfCounterTranslator::PerfCounterTranslator(std::shared_ptr<ngraph::runtime::Executable>& exe)
+{
+    m_counters = exe->get_performance_data();
+}
+
+int64_t PerfCounterTranslator::_length()
+{
+    return m_counters.size();
+}
+
+std::tuple<std::string, size_t> PerfCounterTranslator::_getindex(int64_t i)
+{
+    ngraph::runtime::PerformanceCounter counter = m_counters.at(i);
+    return make_tuple(counter.name(), counter.microseconds());
+}
+
+/////
 ///// Module Wrapping
 /////
 
-
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 {
+    /////
+    ///// NodeWrapper
+    /////
+
+    mod.add_type<PerfCounterTranslator>("PerfCounterTranslator")
+        .constructor<std::shared_ptr<ngraph::runtime::Executable>&>()
+        .method("_length", &PerfCounterTranslator::_length)
+        .method("_getindex", &PerfCounterTranslator::_getindex);
+
     /////
     ///// nGraph Types
     /////
@@ -772,10 +813,32 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// GPU Ops
     /////
     
+    // The next two methods are horribly inefficient because they recklessly copy around
+    // entire arrays for each call.
+    //
+    // However, when I tried putting these in a class, I got runtime linker errors.
+    
+    //mod.method("num_perf_counters", [](const std::shared_ptr<ngraph::runtime::Executable>& exe)
+    //{
+    //    return ngraph::runtime::gpu::get_performance_counters(exe).size();
+    //});
+
+    //mod.method("get_perf_counter", [](
+    //            const std::shared_ptr<ngraph::runtime::Executable>& exe,
+    //            int64_t i)
+    //{
+    //    std::vector<ngraph::runtime::PerformanceCounter> counters = 
+    //        ngraph::runtime::gpu::get_performance_counters(exe);
+
+    //    ngraph::runtime::PerformanceCounter counter = counters.at(i);
+    //    return make_tuple(counter.name(), counter.microseconds());
+    //});
+
     mod.method("can_select_algo", [](const std::shared_ptr<ngraph::Node>& node)
     {
-        return  ngraph::runtime::gpu::can_select_algo(node);
+        return ngraph::runtime::gpu::can_select_algo(node);
     });
+
     mod.method("get_algo_options", [](
         const std::shared_ptr<ngraph::Node>& node,
         jlcxx::ArrayRef<uint32_t> algo_numbers,
@@ -810,8 +873,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         ngraph::runtime::gpu::set_algo(node, algo, workspace_size); 
     });
 
-    // PMDK Stuff
-#ifdef NGRAPH_PMDK_ENABLE
+    /////
+    ///// These now have realy bad names now that we're switching over to doing CPU and GPU
+    /////
 
     // Query if a tensor is in persistent memory
     mod.method("is_persistent", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
@@ -831,6 +895,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         tensor->set_pool_number(0);
     });
 
+    // PMDK Stuff
+#ifdef NGRAPH_PMDK_ENABLE
     mod.method("create_persistent_tensor", [](
         ngraph::runtime::Backend* backend,
         const ngraph::element::Type& element_type,
@@ -846,6 +912,5 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("set_pool_dir", &ngraph::pmem::PMEMManager::set_pool_dir);
 
 #endif
-
 }
 

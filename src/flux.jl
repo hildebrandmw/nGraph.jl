@@ -172,8 +172,8 @@ function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
     return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
 end
 
-struct FluxExecutable{T,M,N}
-    ex::Executable
+struct FluxExecutable{B,T,M,N}
+    ex::Executable{B}
     optimizer::T
     inputs::NTuple{M,Tensor}
     outputs::NTuple{N,Tensor}

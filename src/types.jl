@@ -135,13 +135,28 @@ AxisVector(x, n) = AxisVector([x], n)
 ##### Backend
 #####
 
-struct Backend
+# For dispatching backend treatment
+abstract type AbstractBackendType end
+struct CPU <: AbstractBackendType end
+struct GPU <: AbstractBackendType end
+
+# Can rely on constant propagation to make this type stable in many circumnstances.
+function backend_type(s::String) 
+    if s == "CPU"
+        return CPU
+    elseif s == "GPU"
+        return GPU
+    else
+        error("Unrecognized backend type: $s")
+    end
+end
+
+struct Backend{T <: AbstractBackendType}
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
 end
 wraptype(::Backend) = HasPointer()
 
-Backend(str::String = "CPU") = Backend(Lib.create(str))
-
+Backend(str::String = "CPU") = Backend{backend_type(str)}(Lib.create(str))
 
 #####
 ##### Nodes
@@ -440,7 +455,13 @@ Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
 name(f::NFunction) = Lib.get_name(getpointer(f))
 
-Base.iterate(f::NFunction, s = 1) = (s <= length(f)) ? (f[s], s+1) : nothing
+function Base.iterate(f::NFunction)
+    # Make sure everything is ordered
+    get_ordered_ops!(f)
+    s = 1
+    return s <= length(f) ? (f[s], s+1) : nothing
+end
+Base.iterate(f::NFunction, s) = (s <= length(f)) ? (f[s], s+1) : nothing
 
 # Allow reverse iterations
 Base.reverse(f::NFunction) = Iterators.reverse(f)

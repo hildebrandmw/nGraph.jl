@@ -9,13 +9,13 @@ untuple(x::Tuple{T}) where {T} = first(x)
 ##### Executable
 #####
 
-mutable struct Executable
+mutable struct Executable{T}
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Executable,:St10shared_ptrIiE}
     ngraph_function::NFunction
-    backend::Backend
+    backend::Backend{T}
 
-    function Executable(ptr, ngraph_function::NFunction, backend::Backend)
-        ex = new(ptr, ngraph_function, backend)
+    function Executable(ptr, ngraph_function::NFunction, backend::Backend{T}) where {T}
+        ex = new{T}(ptr, ngraph_function, backend)
 
         # Immediately clear this from the saved functions
         #
@@ -30,9 +30,9 @@ wraptype(::Executable) = HasPointer()
 compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector; kw...) = 
     compile(backend::Backend, NFunction(outputs, inputs); kw...)
 
-function compile(backend::Backend, ngraph_function::NFunction; callback = nothing)
+function compile(backend::Backend, ngraph_function::NFunction; emit_timing::Bool = false, callback = nothing)
     apply_callback!(ngraph_function, callback)
-    pointer = Lib.compile(getpointer(backend), getpointer(ngraph_function), false)
+    pointer = Lib.compile(getpointer(backend), getpointer(ngraph_function), emit_timing)
 
     # Get the post-compiled ops for the function.
     get_ordered_ops!(ngraph_function)
@@ -82,4 +82,22 @@ function recompile(ex::Executable, fn = ex.ngraph_function)
     get_ordered_ops!(ex.ngraph_function)
 
     return Executable(pointer, fn, backend)
+end
+
+#####
+##### Extract GPU performance data
+#####
+
+function get_performance(ex::Executable)
+    # Construct a PerfCounterTranslator
+    translator = Lib.PerfCounterTranslator(getpointer(ex))  
+
+    # Create a dictionary of timing results. Iterate through the CounterTranslator to
+    # construct the dict.
+    times = Dict{String,Int}() 
+    for i in 1:Lib._length(translator)
+        name, time = Lib._getindex(translator, i-1)
+        times[name] = convert(Int, time)
+    end
+    return times
 end
