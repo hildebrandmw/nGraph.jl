@@ -27,6 +27,7 @@
 #include "ngraph/runtime/performance_counter.hpp"
 //#include "ngraph/runtime/gpu/gpu_backend.hpp"
 #include "ngraph/runtime/gpu/gpu_helper.hpp"
+#include "ngraph/runtime/gpu/op/sync.hpp"
 
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
@@ -812,27 +813,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
     ///// GPU Ops
     /////
-    
-    // The next two methods are horribly inefficient because they recklessly copy around
-    // entire arrays for each call.
-    //
-    // However, when I tried putting these in a class, I got runtime linker errors.
-    
-    //mod.method("num_perf_counters", [](const std::shared_ptr<ngraph::runtime::Executable>& exe)
-    //{
-    //    return ngraph::runtime::gpu::get_performance_counters(exe).size();
-    //});
-
-    //mod.method("get_perf_counter", [](
-    //            const std::shared_ptr<ngraph::runtime::Executable>& exe,
-    //            int64_t i)
-    //{
-    //    std::vector<ngraph::runtime::PerformanceCounter> counters = 
-    //        ngraph::runtime::gpu::get_performance_counters(exe);
-
-    //    ngraph::runtime::PerformanceCounter counter = counters.at(i);
-    //    return make_tuple(counter.name(), counter.microseconds());
-    //});
 
     mod.method("can_select_algo", [](const std::shared_ptr<ngraph::Node>& node)
     {
