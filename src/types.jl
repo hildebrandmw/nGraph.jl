@@ -234,7 +234,7 @@ function get_input_shape(N::NodeLike, i)
 end
 
 # Get input and output nodes.
-get_input(N::NodeLike, i) = Node(Lib.get_input_node(getpointer(N), convert(Int, i-1)))
+get_input(N::T, i) where {T <: NodeLike} = T(Lib.get_input_node(getpointer(N), convert(Int, i-1)))
 get_inputs(N::NodeLike) = [get_input(N,i) for i in 1:Lib.get_input_size(getpointer(N))]
 
 get_output_size(N::NodeLike) = Lib.get_output_size(getpointer(N))
@@ -246,8 +246,11 @@ function get_output_shape(N::NodeLike, i)
     return ntuple(i -> shape[i], length(shape))
 end
 
-get_output(N::NodeLike, i) = Lib.get_output_nodes(getpointer(N), convert(Int, i-1))
-get_outputs(N::NodeLike) = [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))]
+get_output(N::T, i) where {T <: NodeLike} = T.(Lib.get_output_nodes(getpointer(N), convert(Int, i-1)))
+get_outputs(N::NodeLike) = 
+    [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))] |>
+    Iterators.flatten |>
+    unique
 
 """
     copy(node::Node, args::NodeVector)
@@ -284,7 +287,12 @@ splice(source::NodeLike, source_output, dest::NodeLike, dest_input, x::NodeLike)
         getpointer(x)
    )
 
-input_needs_conversion(node::NodeLike, i) = Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
+input_needs_conversion(node::NodeLike, i) = 
+    Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
+
+get_sync(node::NodeLike) = Lib.get_sync(getpointer(node))
+set_sync(node::NodeLike) = Lib.set_sync(getpointer(node))
+clear_sync(node::NodeLike) = Lib.clear_sync(getpointer(node))
 
 ## Associates
 set_input_affinity(node::NodeLike) = Lib.set_input_affinity(getpointer(node))
