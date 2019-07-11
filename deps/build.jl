@@ -15,6 +15,13 @@ using CxxWrap, LibGit2, JSON
 url = "https://github.com/darchr/ngraph"
 branch = "mh/pmem"
 
+# In order to use CUDA10, we need a version of Cmake > 3.12.
+#
+# The version that is installed on ubuntu by default is 3.10
+#
+# TODO: Automatically fetch cmake
+cmake_path = joinpath(@__DIR__, "cmake", "bin", "cmake")
+
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
 
@@ -53,7 +60,8 @@ parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
 parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 parameters["GPU"] && push!(cmake_args, "-DNGRAPH_GPU_ENABLE=TRUE")
 
-run(`cmake .. $cmake_args`)
+
+run(`$cmake_path .. $cmake_args`)
 run(`make -j all`)
 run(`make install`)
 
@@ -63,7 +71,7 @@ cd(current_dir)
 ##### cxxwrap library
 #####
 
-println("Building Lib")
+@info "Building Lib"
 
 # Path to the CxxWrap dependencies
 cxxhome = dirname(dirname(CxxWrap.jlcxx_path))

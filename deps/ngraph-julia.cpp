@@ -21,11 +21,10 @@
 
 // CPU ops
 #include "ngraph/runtime/cpu/op/convert_layout.hpp"
-#include "ngraph/runtime/cpu/op/move.hpp"
+#include "ngraph/op/move.hpp"
 
 // GPU Related Stuff
 #include "ngraph/runtime/performance_counter.hpp"
-//#include "ngraph/runtime/gpu/gpu_backend.hpp"
 #include "ngraph/runtime/gpu/gpu_helper.hpp"
 #include "ngraph/runtime/gpu/op/sync.hpp"
 
