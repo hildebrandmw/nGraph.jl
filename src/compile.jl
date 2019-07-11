@@ -42,17 +42,11 @@ function compile(backend::Backend, ngraph_function::NFunction; emit_timing::Bool
     return Executable(pointer, ngraph_function, backend)
 end
 
-struct Callback{T,U}
-    f::T
-    args::U
-end
-(cb::Callback)() = cb.f(cb.args...)
-
 apply_callback!(f::NFunction, ::Nothing) = nothing
 function apply_callback!(f::NFunction, cb) 
-    @info "Applying Function Callback" cb
     CB = @cfunction($(() -> cb(f)), Cvoid, ())
-    # Save the callback with the function object to avoid it being garbage collected
+
+    # Save the callback with the NFunction object to avoid it being garbage collected
     f.callback = CB 
 
     Lib.set_jl_callback(getpointer(f), Base.unsafe_convert(Ptr{Cvoid}, CB))
@@ -85,7 +79,7 @@ function recompile(ex::Executable, fn = ex.ngraph_function)
 end
 
 #####
-##### Extract GPU performance data
+##### Extract performance data
 #####
 
 function get_performance(ex::Executable)
