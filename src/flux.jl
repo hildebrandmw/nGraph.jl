@@ -121,7 +121,6 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
 Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
-
 compile(f, args...; kw...) = compile(Backend(), f, args...; kw...)
 
 """
@@ -152,7 +151,7 @@ function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
         data = data,
         _id = ctx.metadata.parameters,
     )
-    opt, opt_inputs, opt_outputs = create(optimizer, backend, arg_tuple)
+    opt_args, opt_inputs, opt_outputs = create(optimizer, arg_tuple)
 
     # Compile the executable
     secondary_outputs = ctx.metadata.secondary
@@ -162,6 +161,10 @@ function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
         NodeVector(outputs..., secondary_outputs..., opt_outputs...);
         kw...
     )
+
+    # Instantiate the optimizer struct AFTER compilation to provide more memory for
+    # profiling
+    opt = instantiate(optimizer, backend, opt_args...)
 
     # Create tensors for the outputs
     input_tensors = map(x -> Tensor(backend, x), args)
@@ -206,20 +209,19 @@ end
 ##### Optimizers
 #####
 
-create(f::Any, backend, args::NamedTuple) = create(f, backend, args.inputs, args.outputs, args.params, args.data)
+create(f::Any, args::NamedTuple) = create(f, args.inputs, args.outputs, args.params, args.data)
 
 # Inference 'Optimizer'
 struct Inference end
+instantiate(::Inference, args...) = InferenceState(args...)
 
 struct InferenceState
-    tensors::Vector
+    tensors::Vector{Tensor}
 end
 
-function create(::Inference, backend, inputs, outputs, params, data)
-    I = InferenceState(map(x -> Tensor(backend, x), data))
-    return I, params, ()
-end
+InferenceState(backend, v::Vector{Node}) = InferenceState(Tensor.(Ref(backend), v))
 
+create(::Inference, inputs, outputs, params, data) = (data,), params, ()
 getinputs(I::InferenceState) = I.tensors
 getoutputs(I::InferenceState) = ()
 update!(I::InferenceState) = nothing
@@ -280,13 +282,21 @@ update!(::Gradient) = nothing
 struct SGD{T <: Number}
     learning_rate::T
 end
+instantiate(::SGD, backend, args...) = SGDState(backend, args...)
 
 mutable struct SGDState
     inputs::Vector{Tensor}
     outputs::Vector{Tensor}
 end
 
-function create(sgd::SGD, backend, inputs, outputs, params, data)
+function SGDState(backend::Backend, inputs::Vector, outputs::Vector)
+    return SGDState(
+        map(x -> Tensor(backend, x), inputs),
+        map(x -> Tensor(backend, x), outputs)
+    )
+end
+
+function create(sgd::SGD, inputs, outputs, params, data)
     # Create a backprop node for each parameter
     adjoints = Adjoints(first(outputs), -constant(sgd.learning_rate))
 
@@ -294,16 +304,12 @@ function create(sgd::SGD, backend, inputs, outputs, params, data)
     updates = [n + bn for (n, bn) in zip(params, backprop_nodes)]
 
     # Create tensors for the parameters and gradients
-    param_tensors = map(x -> Tensor(backend, x), data)
-    update_tensors = map(x -> Tensor(backend, x), data)
+    param_tensors = data
+    update_tensors = data
 
-    S = SGDState(
-        param_tensors,
-        update_tensors,
-    )
-
+    args = (param_tensors, update_tensors)
     return (
-        S,
+        args,
         params,
         updates
     )
