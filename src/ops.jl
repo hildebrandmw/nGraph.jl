@@ -22,6 +22,7 @@ end
 _forward(f) = f
 _forward(::typeof(*)) = multiply
 _forward(::typeof(NNlib.σ)) = _sigmoid
+_forward(::typeof(/)) = divide
 
 Base.broadcasted(f, x::Node, y::Node) = _forward(f)(expand(x,y)...)
 Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(expand(x, Node(y))...)
@@ -175,8 +176,8 @@ Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
 
 # Reverse the order in the call to `Lib.op_dot` to account for row major/col major
 # differences
-dot(a::Node{T,N}, b::Node{T,M}, n) where {T,N,M} =
-    Node{T,M}(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
+dot(a::Node{T}, b::Node{T}, n) where {T,N,M} =
+    Node(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
 
 # Fully Connected
 Base.:*(w::Node, x::Node) = dot(w, x, 1)
@@ -320,6 +321,12 @@ function Flux.softmax(x::Node{T,N}; axes = 1) where {T,N}
     node = Lib.op_softmax(getpointer(x), av)
     return Node{T,N}(node)
 end
+
+#####
+##### Sqrt
+#####
+
+Base.sqrt(x::N) where {N <: Node} = N(Lib.op_sqrt(getpointer(x)))
 
 #####
 ##### Subtract

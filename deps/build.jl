@@ -52,6 +52,7 @@ current_dir = pwd()
 # nGraph is just generally happier if we build it with clang.
 CC = "clang"
 CXX = "clang++"
+nproc = parse(Int, read(`nproc`, String))
 
 cd(builddir)
 cmake_args = [
@@ -70,7 +71,7 @@ parameters["GPU"] && push!(cmake_args, "-DNGRAPH_GPU_ENABLE=TRUE")
 
 
 run(`$cmake_path .. $cmake_args`)
-run(`make -j all`)
+run(`make -j $nproc`)
 run(`make install`)
 
 cd(current_dir)
@@ -99,5 +100,4 @@ if !isempty(defines)
     push!(make_args, "DEFINES=\"$(join(defines, " "))\"")
 end
 
-#parameters["PMDK"] && push!(make_args, "DEFINES=-DNGRAPH_PMDK_ENABLE=TRUE")
-run(`make $make_args -j all `)
+run(`make $make_args -j $nproc `)

@@ -629,6 +629,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_sqrt", [](
+        const std::shared_ptr<ngraph::Node>& arg)
+    {
+        auto a = std::make_shared<ngraph::op::Sqrt>(arg);
+        return std::dynamic_pointer_cast<ngraph::Node>(a); 
+    });
+
     mod.method("op_subtract", [](
         const std::shared_ptr<ngraph::Node>& arg0,
         const std::shared_ptr<ngraph::Node>& arg1)
