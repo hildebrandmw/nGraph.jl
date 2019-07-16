@@ -219,7 +219,7 @@ struct InferenceState
     tensors::Vector{Tensor}
 end
 
-InferenceState(backend, v::Vector{Node}) = InferenceState(Tensor.(Ref(backend), v))
+InferenceState(backend, v::Vector) = InferenceState(Tensor.(Ref(backend), v))
 
 create(::Inference, inputs, outputs, params, data) = (data,), params, ()
 getinputs(I::InferenceState) = I.tensors

@@ -315,8 +315,6 @@ mutable struct Tensor
         pointer = Lib.create_tensor(getpointer(backend), element, shape)
 
         tensor = new(pointer, false)
-        @info "Creating a tensor of size $(sizeof(tensor))"
-
         return tensor
     end
 
