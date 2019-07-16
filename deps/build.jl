@@ -8,19 +8,27 @@ using CxxWrap, LibGit2, JSON
 # "DEBUG" -> Bool: Build DEBUG version of nGraph
 
 #####
+##### cmake
+#####
+
+# Need to install a more recent version of cmake to support building with CUDA 10
+cmake_path = joinpath(@__DIR__, "cmake", "bin", "cmake")
+if !ispath(cmake_path)
+    download(
+        "https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz",
+        "cmake.tar.gz",
+    )
+    run(`tar -xvf cmake.tar.gz`)
+    mv("cmake-3.14.5-Linux-x86_64", "cmake", force = true)
+end
+
+#####
 ##### ngraph
 #####
 
 # Fetch repo
 url = "https://github.com/darchr/ngraph"
 branch = "mh/pmem"
-
-# In order to use CUDA10, we need a version of Cmake > 3.12.
-#
-# The version that is installed on ubuntu by default is 3.10
-#
-# TODO: Automatically fetch cmake
-cmake_path = joinpath(@__DIR__, "cmake", "bin", "cmake")
 
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
@@ -83,5 +91,13 @@ make_args = [
     "CXX=$CXX",
 ]
 
-parameters["PMDK"] && push!(make_args, "DEFINES=-DNGRAPH_PMDK_ENABLE=TRUE")
+# Define some macros to control switches in `ngraph-julia.cpp`
+defines = String[]
+parameters["PMDK"] && push!(defines, "-DNGRAPH_PMDK_ENABLE=TRUE")
+parameters["GPU"] && push!(defines, "-DNGRAPH_GPU_ENABLE=TRUE")
+if !isempty(defines)
+    push!(make_args, "DEFINES=\"$(join(defines, " "))\"")
+end
+
+#parameters["PMDK"] && push!(make_args, "DEFINES=-DNGRAPH_PMDK_ENABLE=TRUE")
 run(`make $make_args -j all `)

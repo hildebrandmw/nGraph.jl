@@ -73,8 +73,6 @@ function recompile(ex::Executable, fn = ex.ngraph_function)
     pointer = withenv("NGRAPH_PASS_HACK" => true) do
         Lib.compile(getpointer(backend), getpointer(fn), false)
     end
-    get_ordered_ops!(ex.ngraph_function)
-
     return Executable(pointer, fn, backend)
 end
 

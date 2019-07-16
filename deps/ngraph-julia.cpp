@@ -816,10 +816,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// GPU Ops
     /////
 
+#ifdef NGRAPH_GPU_ENABLE
     mod.method("can_select_algo", [](const std::shared_ptr<ngraph::Node>& node)
     {
         return ngraph::runtime::gpu::can_select_algo(node);
     });
+#else
+// Dummy fallback because this method can still be called.
+    mod.method("can_select_algo", [](const std::shared_ptr<ngraph::Node>& node)
+    {
+        return false;
+    });
+#endif
 
     mod.method("get_algo_options", [](
         const std::shared_ptr<ngraph::Node>& node,

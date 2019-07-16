@@ -1,5 +1,5 @@
 {
-    "PMDK": false,
-    "GPU": true,
+    "PMDK": true,
+    "GPU": false,
     "DEBUG": false
 }
