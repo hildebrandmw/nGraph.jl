@@ -82,6 +82,12 @@ end
 ##### Extract performance data
 #####
 
+"""
+    get_performance(ex::Executable) -> Dict{String,Int}
+
+Return the runtime in microseconds of each kernel in `ex` as a dictionary keyed by kernel 
+name.
+"""
 function get_performance(ex::Executable)
     # Construct a PerfCounterTranslator
     translator = Lib.PerfCounterTranslator(getpointer(ex))  
