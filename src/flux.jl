@@ -121,8 +121,6 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
 Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
-compile(f, args...; kw...) = compile(Backend(), f, args...; kw...)
-
 """
     compile(backend, f, args..; optimizer = Inference()) -> Executable
 

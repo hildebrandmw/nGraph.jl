@@ -219,9 +219,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     ///// Node
     mod.add_type<ngraph::Node>("Node")
-        .method("get_sync", &ngraph::Node::get_sync)
-        .method("set_sync", &ngraph::Node::set_sync)
-        .method("clear_sync", &ngraph::Node::clear_sync)
+        //.method("get_sync", &ngraph::Node::get_sync)
+        //.method("set_sync", &ngraph::Node::set_sync)
+        //.method("clear_sync", &ngraph::Node::clear_sync)
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
         .method("copy_with_new_args", &ngraph::Node::copy_with_new_args)
