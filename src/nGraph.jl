@@ -16,7 +16,10 @@ const MODELDIR = joinpath(PKGDIR, "models")
 # Enable experimental operations
 const EXPERIMENTAL = true
 
+# For convenient overloading in ops.jl
 import Base: broadcasted
+
+settings() = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
 
 # Flag to determine if the compile has been invoked yet.
 #
