@@ -89,13 +89,23 @@ __flip(x::Node) = nothing
 struct SnoopMeta
     parameters::IdDict{Any,Node}
     data::IdDict{Node,AbstractArray}
+    # Used for keeping track of the order that Nodes are created for deterministic ordering
+    # of inputs and outputs
+    primary::Vector{Node}
     secondary::Vector{Node}
 end
-SnoopMeta() = SnoopMeta(IdDict{Any,Node}(), IdDict{Node,AbstractArray}(), Node[])
+SnoopMeta() = SnoopMeta(IdDict{Any,Node}(), IdDict{Node,AbstractArray}(), Node[], Node[])
 
 # Hijack Node constructors from TrackedArrays
 function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Flux.Tracker.TrackedArray) where {T,N}
-    node = get!(ctx.metadata.parameters, x, Cassette.recurse(ctx, f, x))::Node{T,N}
+    if haskey(ctx.metadata.parameters, x)
+        node = ctx.metadata.parameters[x]::Node{T,N}
+    else
+        node = Cassette.recurse(ctx, f, x)::Node{T,N}
+        ctx.metadata.parameters[x] = node
+        push!(ctx.metadata.primary, node)
+    end
+
     # Save the data in the tracked array for constructing tensors later.
     get!(ctx.metadata.data, node, copy(x.data))
     return node
@@ -137,7 +147,8 @@ function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
-    params = collect(values(ctx.metadata.parameters))
+    #params = collect(values(ctx.metadata.parameters))
+    params = ctx.metadata.primary
     data = [ctx.metadata.data[p] for p in params]
 
     println("Found $(length(params)) params")
