@@ -266,6 +266,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                     nodes.push_back(input->get_node());
                  }
                  return NodeWrapper(nodes);
+             })
+         .method("get_control_deps", [](const std::shared_ptr<ngraph::Node>& node)
+             {
+                 auto deps = node->get_control_dependencies();
+                 std::vector<std::shared_ptr<ngraph::Node>> nodes;
+                 for (auto node : deps)
+                 {
+                    nodes.push_back(node);
+                 }
+                 return NodeWrapper(nodes);
              });
 
     // Give me a node, I'll give yah a tensor!
@@ -319,7 +329,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         {
             return std::dynamic_pointer_cast<ngraph::Node>(params[i]);
         });
-
 
     /////
     ///// NodeWrapper
@@ -795,28 +804,21 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         auto a = std::make_shared<ngraph::op::MoveAsync>(arg, n, across);
         auto b = std::dynamic_pointer_cast<ngraph::Node>(a);
 
-        // Set up control dependencies
-        across->add_control_dependency(arg);
+        // Across now has a control dependency on the async move node, which means that
+        // the async move node MUST be scheduled before `across`
+        //across->add_control_dependency(b);
         b->add_control_dependency(across);
         return b;
     });
 
-
-    mod.method("set_input_affinity", [](const std::shared_ptr<ngraph::Node>& node)
+    mod.method("set_priority", [](const std::shared_ptr<ngraph::Node>& node, int64_t p)
     {
-        node->set_affinity(ngraph::NodeAffinity::AFFINITY_INPUT);
+        node->set_priority(p);
     });
 
-    mod.method("set_output_affinity", [](const std::shared_ptr<ngraph::Node>& node)
+    mod.method("get_priority", [](const std::shared_ptr<ngraph::Node>& node)
     {
-        node->set_affinity(ngraph::NodeAffinity::AFFINITY_OUTPUT);
-    });
-
-    mod.method("add_associate", [](
-        const std::shared_ptr<ngraph::Node>& node,
-        const std::string associate)
-    {
-        node->add_associate(associate);
+        node->get_priority();
     });
 
     /////

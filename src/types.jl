@@ -252,6 +252,8 @@ get_outputs(N::NodeLike) =
     Iterators.flatten |>
     unique
 
+get_control_deps(N::T) where {T <: NodeLike} = T.(Lib.get_control_deps(getpointer(N)))
+
 """
     copy(node::Node, args::NodeVector)
 
@@ -295,9 +297,8 @@ set_sync(node::NodeLike) = Lib.set_sync(getpointer(node))
 clear_sync(node::NodeLike) = Lib.clear_sync(getpointer(node))
 
 ## Associates
-set_input_affinity(node::NodeLike) = Lib.set_input_affinity(getpointer(node))
-set_output_affinity(node::NodeLike) = Lib.set_output_affinity(getpointer(node))
-add_associate(node::NodeLike, str::String) = Lib.add_associate(getpointer(node), str)
+set_priority(node::NodeLike, p::Integer) = Lib.set_priority(getpointer(node), convert(Int64, p))
+get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 
 #####
 ##### Tensor
