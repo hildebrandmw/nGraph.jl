@@ -3,6 +3,7 @@
 
 #include "ngraph/ngraph.hpp"
 #include "ngraph/op/op.hpp"
+#include "ngraph/op/move.hpp"
 #include "ngraph/graph_util.hpp"
 #include "ngraph/util.hpp"
 #include "ngraph/function.hpp"
@@ -21,12 +22,16 @@
 
 // CPU ops
 #include "ngraph/runtime/cpu/op/convert_layout.hpp"
-#include "ngraph/op/move.hpp"
+#include "ngraph/runtime/cpu/op/rnn_utils.hpp"
+#include "ngraph/runtime/cpu/op/lstm.hpp"
+#include "ngraph/runtime/cpu/op/rnn.hpp"
 
 // GPU Related Stuff
+#ifdef NGRAPH_GPU_ENABLE
 #include "ngraph/runtime/performance_counter.hpp"
 #include "ngraph/runtime/gpu/gpu_helper.hpp"
 #include "ngraph/runtime/gpu/op/sync.hpp"
+#endif
 
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
@@ -532,6 +537,57 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_lstm", [](
+            const std::shared_ptr<ngraph::Node> src_layer,
+            const std::shared_ptr<ngraph::Node> src_iter,
+            const std::shared_ptr<ngraph::Node> weights_layer,
+            const std::shared_ptr<ngraph::Node> weights_iter,
+            std::shared_ptr<ngraph::Node> bias)
+    {
+        auto a = std::make_shared<ngraph::op::Lstm>(
+                src_layer, 
+                src_iter, 
+                weights_layer, 
+                weights_iter, 
+                bias, 
+                ngraph::runtime::cpu::rnn_utils::vanilla_lstm
+            );
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    // Some notes regarding direction
+    //
+    // nGraph's documentation regarding direction is a little spotty (i.e. it doesn't exist.)
+    // I'm pretty sure 1 means single directional while 2 is bidirectional.
+    //
+    // Would be nice if they had an actual API for this.
+    mod.method("op_lstm_rnn", [](
+            const std::shared_ptr<ngraph::Node> src_layer,
+            const std::shared_ptr<ngraph::Node> src_iter,
+            const std::shared_ptr<ngraph::Node> weights_layer,
+            const std::shared_ptr<ngraph::Node> weights_iter,
+            std::shared_ptr<ngraph::Node> bias,
+            size_t num_timesteps,
+            size_t direction,
+            size_t num_fused_layers)
+    {
+        auto a = std::make_shared<ngraph::op::Rnn>(
+                src_layer,
+                src_iter,
+                weights_layer,
+                weights_iter,
+                bias,
+                num_timesteps,
+                4, // 4 gates for LSTM cell
+                num_timesteps,
+                2, // 2 cell stats for LSTM
+                direction,
+                num_fused_layers,
+                ngraph::runtime::cpu::rnn_utils::vanilla_lstm);
+
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_maximum", [](
         const std::shared_ptr<ngraph::Node> &arg0,
         const std::shared_ptr<ngraph::Node> &arg1)
@@ -838,6 +894,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 #endif
 
+#ifdef NGRAPH_GPU_ENABLE
     mod.method("get_algo_options", [](
         const std::shared_ptr<ngraph::Node>& node,
         jlcxx::ArrayRef<uint32_t> algo_numbers,
@@ -871,6 +928,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         ngraph::runtime::gpu::set_algo(node, algo, workspace_size); 
     });
+#endif
 
     /////
     ///// These now have realy bad names now that we're switching over to doing CPU and GPU

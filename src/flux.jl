@@ -310,7 +310,17 @@ function create(sgd::SGD, inputs, outputs, params, data)
     adjoints = Adjoints(first(outputs), -constant(sgd.learning_rate))
 
     backprop_nodes = [backprop_node(adjoints, n) for n in params]
-    updates = [n + bn for (n, bn) in zip(params, backprop_nodes)]
+    updates = map(zip(params, backprop_nodes)) do x
+        n, bn = x
+
+        # Backprop through LSTMs results in things being transposed - which is helpful.
+        # Untranspose them here ...
+        if size(n) == reverse(size(bn))
+            bn = transpose(bn)
+        end
+
+        return n + bn
+    end
 
     # Create tensors for the parameters and gradients
     param_tensors = data

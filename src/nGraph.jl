@@ -38,6 +38,7 @@ include("ops.jl")
 include("compile.jl")
 
 include("flux.jl")
+include("layers.jl")
 include("gpu.jl")
 #include("models/inception_v4.jl")
 include("models/resnet.jl")
