@@ -21,6 +21,7 @@
 #include "ngraph/runtime/cpu/cpu_helper.hpp"
 
 // CPU ops
+#include "ngraph/runtime/cpu/op/batch_dot.hpp"
 #include "ngraph/runtime/cpu/op/convert_layout.hpp"
 #include "ngraph/runtime/cpu/op/rnn_utils.hpp"
 #include "ngraph/runtime/cpu/op/lstm.hpp"
@@ -417,6 +418,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     {
         auto a = std::make_shared<ngraph::op::AvgPool>(
             arg, window_shape, window_movement_strides, padding_below, padding_above, false);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
+    mod.method("op_batchdot", [](
+        const std::shared_ptr<ngraph::Node>& x,
+        const std::shared_ptr<ngraph::Node>& y,
+        bool transpose_x,
+        bool transpose_y)
+    {
+        auto a = std::make_shared<ngraph::op::BatchDot>(x, y, transpose_x, transpose_y);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 

@@ -65,6 +65,13 @@ end
 Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
 
 #####
+##### BatchMatrixMultiply
+#####
+
+bmm(a::Node{T,N}, b::Node{T,N}; transpose_a = false, transpose_b = false) where {T,N} =
+    Node(Lib.op_batchdot(getpointer(a), getpointer(b), transpose_a, transpose_b))
+
+#####
 ##### BatchNorm
 #####
 
@@ -188,7 +195,7 @@ Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 ##### Embedding
 #####
 
-embedding(data::Node, weights::Node) = 
+embedding(data::Node, weights::Node) =
     Node(Lib.op_embedding(getpointer(data), getpointer(weights)))
 
 #####
@@ -369,7 +376,7 @@ end
 move(x::T, output = 1) where {T <: Node} = T(Lib.op_move(getpointer(x), convert(UInt, output-1)))
 
 moveasync(x::T, across::Node) where {T <: Node} = moveasync(x, 1, across)
-moveasync(x::T, output, across::Node) where {T <: Node} = 
+moveasync(x::T, output, across::Node) where {T <: Node} =
     T(Lib.op_moveasync(getpointer(x), convert(UInt, output-1), getpointer(across)))
 
 convert_layout_to(x::Node, y::Node, i) =
