@@ -131,6 +131,10 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
 Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
+# Skip recursing initialization calls - recursing turns out to take a very, very long time.
+Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_normal), args...) = f(args...)
+Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_uniform), args...) = f(args...)
+
 """
     compile(backend, f, args..; optimizer = Inference()) -> Executable
 
