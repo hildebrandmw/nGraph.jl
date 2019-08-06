@@ -68,6 +68,7 @@ cmake_args = [
 parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
 parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 parameters["GPU"] && push!(cmake_args, "-DNGRAPH_GPU_ENABLE=TRUE")
+parameters["NUMA"] && push!(cmake_args, "-DNGRAPH_NUMA_ENABLE=TRUE")
 
 
 run(`$cmake_path .. $cmake_args`)

@@ -6,6 +6,7 @@ const DEFAULTS = (
     GPU = false,
     # Build nGraph in debug mode
     DEBUG = false,
+    NUMA = false,
 )
 
 function _default_build_parameters()
