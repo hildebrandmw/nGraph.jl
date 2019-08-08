@@ -306,26 +306,28 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 
 struct Persistent end
 
-mutable struct Tensor
+mutable struct Tensor{T <: Backend}
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
+    backend::T
     ispersistent::Bool
 
-    function Tensor(::Type{T}, backend::Backend, inds::Vararg{Int,N}) where {T,N} 
+    function Tensor(::Type{T}, backend::B, inds::Vararg{Int,N}) where {T,N, B <: Backend}
+
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_tensor(getpointer(backend), element, shape)
 
-        tensor = new(pointer, false)
+        tensor = new{B}(pointer, backend, false)
         return tensor
     end
 
     # TODO: Find a way to break this out
-    function Tensor(::Type{T}, ::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
+    function Tensor(::Type{T}, ::Persistent, backend::B, inds::Vararg{Int,N}) where {T,N,B<:Backend}
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_persistent_tensor(getpointer(backend), element, shape)
 
-        return new(pointer, true)
+        return new{B}(pointer, backend, true)
     end
 end
 
@@ -358,7 +360,17 @@ end
 
 # Swap out the inner pointer for one allocated in persistent memory
 function make_persistent!(t::Tensor)
-    inner = Tensor(eltype(t), Persistent(), Backend(), size(t)...)
+    @assert !t.ispersistent
+    inner = Tensor(eltype(t), Persistent(), t.backend, size(t)...)
+    write(inner, read(t)) 
+    t.ptr = inner.ptr
+    return nothing
+end
+
+function make_volatile!(t::Tensor)
+    @assert t.ispersistent
+    inner = Tensor(eltype(t), t.backend, size(t)...)
+    write(inner, read(t)) 
     t.ptr = inner.ptr
     return nothing
 end
@@ -475,7 +487,8 @@ Base.iterate(f::NFunction, s) = (s <= length(f)) ? (f[s], s+1) : nothing
 
 # Allow reverse iterations
 Base.reverse(f::NFunction) = Iterators.reverse(f)
-Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) = (s == 0) ? nothing : (f.itr[s], s-1)
+Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) = 
+    (s == 0) ? nothing : (f.itr[s], s-1)
 
 Base.copy(f::NFunction) = NFunction(Lib.clone_function(getpointer(f)))
 
