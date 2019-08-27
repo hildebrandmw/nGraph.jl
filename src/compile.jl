@@ -50,7 +50,7 @@ function apply_callback!(f::NFunction, cb)
     f.callback = CB 
 
     Lib.set_jl_callback(getpointer(f), Base.unsafe_convert(Ptr{Cvoid}, CB))
-    @info Lib.get_jl_callback(getpointer(f))
+    @debug Lib.get_jl_callback(getpointer(f))
 end
 
 function (ex::Executable)(inputs::Vector{Any}, outputs::Vector{Any}) 
