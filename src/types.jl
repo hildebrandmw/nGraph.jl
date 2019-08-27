@@ -306,28 +306,28 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 
 struct Persistent end
 
-mutable struct Tensor{T <: Backend}
+mutable struct Tensor
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
-    backend::T
+    backend::Backend
     ispersistent::Bool
 
-    function Tensor(::Type{T}, backend::B, inds::Vararg{Int,N}) where {T,N, B <: Backend}
+    function Tensor(::Type{T}, backend::Backend, inds::Vararg{Int,N}) where {T,N}
 
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_tensor(getpointer(backend), element, shape)
 
-        tensor = new{B}(pointer, backend, false)
+        tensor = new(pointer, backend, false)
         return tensor
     end
 
     # TODO: Find a way to break this out
-    function Tensor(::Type{T}, ::Persistent, backend::B, inds::Vararg{Int,N}) where {T,N,B<:Backend}
+    function Tensor(::Type{T}, ::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_persistent_tensor(getpointer(backend), element, shape)
 
-        return new{B}(pointer, backend, true)
+        return new(pointer, backend, true)
     end
 end
 

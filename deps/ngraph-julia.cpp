@@ -854,7 +854,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return ngraph::runtime::cpu::get_mkldnn_string(enum_int);
     });
 
-
     // Graph Utils
     mod.method("my_insert_new_node_between", &ngraph::my_insert_new_node_between);
 
