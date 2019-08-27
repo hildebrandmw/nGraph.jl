@@ -918,18 +918,27 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         // horribly mangled when transferring over into Julia, and I don't really feel
         // like debugging that.
         auto options = ngraph::runtime::gpu::get_algo_options(node);
+        bool alloc_failed = false;
         for (auto i: options)
         {
             // Unpack tuple
             uint32_t algo;
             float time;
             size_t memory;
-            std::tie(algo, time, memory) = i;
+            bool failed;
+            std::tie(algo, time, memory, failed) = i;
 
-            algo_numbers.push_back(algo);
-            timings.push_back(time);
-            memories.push_back(memory);
+            // Only add the non-failed convolutions.
+            if (failed)
+            {
+                alloc_failed = true;
+            } else {
+                algo_numbers.push_back(algo);
+                timings.push_back(time);
+                memories.push_back(memory);
+            }
         }
+        return alloc_failed;
     });
 
     mod.method("set_algo", [](
