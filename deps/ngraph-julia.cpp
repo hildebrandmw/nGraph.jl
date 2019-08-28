@@ -971,9 +971,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         tensor->set_pool_number(0);
     });
 
-    // PMDK Stuff
-#ifdef NGRAPH_PMDK_ENABLE
-    mod.method("create_persistent_tensor", [](
+    mod.method("create_cpu_persistent_tensor", [](
         ngraph::runtime::Backend* backend,
         const ngraph::element::Type& element_type,
         const ngraph::Shape& shape)
@@ -983,6 +981,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     // PMDK stuff
+#ifdef NGRAPH_PMDK_ENABLE
     mod.add_type<ngraph::pmem::PMEMManager>("PMEMManager")
         .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
         .method("set_pool_dir", &ngraph::pmem::PMEMManager::set_pool_dir);

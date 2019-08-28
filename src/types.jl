@@ -29,7 +29,7 @@ for (T,S) in TYPEMAPS
 end
 
 # This is horrible :(
-# I could at least move this to a compile time auto-generator
+# I could at least move this to a compile time auto-generator or something
 function back(x::Element)
     str = Lib.c_type_name(x)
     d = Dict([
@@ -306,31 +306,34 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 
 struct Persistent end
 
+_persistent_tensor(backend::Backend{CPU}, args...) = 
+    Lib.create_cpu_persistent_tensor(getpointer(backend), args...)
+
+# TODO: Implement in GPU bsckend C++ code
+# _persistent_tensor(backend::Backend{GPU}, args...) = 
+#     Lib.create_gpu_persistent_tensor(getpointer(backend), args...)
+
 mutable struct Tensor
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
     backend::Backend
     ispersistent::Bool
 
     function Tensor(::Type{T}, backend::Backend, inds::Vararg{Int,N}) where {T,N}
-
         shape = Shape(inds)
         element = Element(T)
         pointer = Lib.create_tensor(getpointer(backend), element, shape)
 
-        tensor = new(pointer, backend, false)
-        return tensor
+        return new(pointer, backend, false)
     end
 
-    # TODO: Find a way to break this out
     function Tensor(::Type{T}, ::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
         shape = Shape(inds)
         element = Element(T)
-        pointer = Lib.create_persistent_tensor(getpointer(backend), element, shape)
+        pointer = _persistent_tensor(backend, element, shape) 
 
         return new(pointer, backend, true)
     end
 end
-
 is_persistent(x::Tensor) = x.ispersistent
 
 Node(x::Tensor) = Node(Lib.op_parameter(

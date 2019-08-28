@@ -27,10 +27,17 @@ mutable struct Executable{T}
 end
 wraptype(::Executable) = HasPointer()
 
+# convenience unwrapper
 compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector; kw...) = 
     compile(backend::Backend, NFunction(outputs, inputs); kw...)
 
-function compile(backend::Backend, ngraph_function::NFunction; emit_timing::Bool = false, callback = nothing)
+function compile(
+        backend::Backend, 
+        ngraph_function::NFunction; 
+        emit_timing::Bool = false, 
+        callback = nothing
+    )
+
     apply_callback!(ngraph_function, callback)
     pointer = Lib.compile(getpointer(backend), getpointer(ngraph_function), emit_timing)
 
@@ -49,32 +56,12 @@ function apply_callback!(f::NFunction, cb)
     # Save the callback with the NFunction object to avoid it being garbage collected
     f.callback = CB 
 
+    # Go through the c++ library to attach the callback to the underlying nGraph function
     Lib.set_jl_callback(getpointer(f), Base.unsafe_convert(Ptr{Cvoid}, CB))
     @debug Lib.get_jl_callback(getpointer(f))
 end
 
-function (ex::Executable)(inputs::Vector{Any}, outputs::Vector{Any}) 
-    Lib.call(getpointer(ex), outputs, inputs)
-end
-
-"""
-    recompile(ex::Executable)
-
-WARNING: Don't call ANY previous executables after calling this function.
-"""
-function recompile(ex::Executable, fn = ex.ngraph_function)
-    backend = ex.backend
-
-    # Assume we're working in the same directory as the "cpu_codegen" directory.
-    #
-    # This is a brittle assumption, but lets work with it for now.
-    ispath("./cpu_codegen") && rm("./cpu_codegen"; recursive = true) 
-
-    pointer = withenv("NGRAPH_PASS_HACK" => true) do
-        Lib.compile(getpointer(backend), getpointer(fn), false)
-    end
-    return Executable(pointer, fn, backend)
-end
+(ex::Executable)(inputs::Vector{Any}, outputs::Vector{Any}) = Lib.call(getpointer(ex), outputs, inputs)
 
 #####
 ##### Extract performance data
