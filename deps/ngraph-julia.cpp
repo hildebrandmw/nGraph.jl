@@ -980,6 +980,17 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return cpu_backend->create_persistent_tensor(element_type, shape);
     });
 
+#ifdef NGRAPH_GPU_ENABLE
+    mod.method("create_gpu_persistent_tensor", [](
+        ngraph::runtime::Backend* backend,
+        const ngraph::element::Type& element_type,
+        const ngraph::Shape& shape)
+    {
+        auto gpu_backend = static_cast<ngraph::runtime::gpu::GPU_Backend*>(backend);
+        return gpu_backend->create_remote_tensor(element_type, shape);
+    });
+#endif
+
     // PMDK stuff
 #ifdef NGRAPH_PMDK_ENABLE
     mod.add_type<ngraph::pmem::PMEMManager>("PMEMManager")

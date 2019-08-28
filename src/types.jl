@@ -306,32 +306,32 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 
 struct Persistent end
 
-_persistent_tensor(backend::Backend{CPU}, args...) = 
+_tensor(backend::Backend{CPU}, ::Nothing, args...) =
+    Lib.create_tensor(getpointer(backend), element, shape)
+
+_tensor(backend::Backend{GPU}, ::Nothing, args...) =
+    Lib.create_tensor(getpointer(backend), element, shape)
+
+_tensor(backend::Backend{CPU}, ::Persistent, args...) = 
     Lib.create_cpu_persistent_tensor(getpointer(backend), args...)
 
-# TODO: Implement in GPU bsckend C++ code
-# _persistent_tensor(backend::Backend{GPU}, args...) = 
-#     Lib.create_gpu_persistent_tensor(getpointer(backend), args...)
+_persistent_tensor(backend::Backend{GPU}, ::Persistent, args...) = 
+    Lib.create_gpu_persistent_tensor(getpointer(backend), args...)
+
+_ispersistent(::Nothing) = false
+_ispersistent(::Persistent) = true
 
 mutable struct Tensor
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
     backend::Backend
     ispersistent::Bool
 
-    function Tensor(::Type{T}, backend::Backend, inds::Vararg{Int,N}) where {T,N}
+    function Tensor(::Type{T}, dispatch::U, backend::Backend, inds::Vararg{Int,N}) where {T,U,N}
         shape = Shape(inds)
         element = Element(T)
-        pointer = Lib.create_tensor(getpointer(backend), element, shape)
+        pointer = _tensor(backend, dispatch, element, shape)
 
-        return new(pointer, backend, false)
-    end
-
-    function Tensor(::Type{T}, ::Persistent, backend::Backend, inds::Vararg{Int,N}) where {T,N}
-        shape = Shape(inds)
-        element = Element(T)
-        pointer = _persistent_tensor(backend, element, shape) 
-
-        return new(pointer, backend, true)
+        return new(pointer, backend, _ispersistent(dispatch))
     end
 end
 is_persistent(x::Tensor) = x.ispersistent
@@ -347,10 +347,10 @@ Base.eltype(T::Tensor) = back(Lib.get_element_type(getpointer(T)))
 Base.sizeof(t::Tensor) = convert(Int, Lib.get_size_in_bytes(getpointer(t)))
 
 Tensor(backend, x::Tensor) = x
-Tensor(backend, x::T) where {T} = Tensor(T, backend)
-Tensor(backend, v::Node{T}) where {T} = Tensor(T, backend, size(v)...)
+Tensor(backend, x::T) where {T} = Tensor(T, nothing, backend)
+Tensor(backend, v::Node{T}) where {T} = Tensor(T, nothing, backend, size(v)...)
 function Tensor(backend, v::AbstractArray{T,N}) where {T,N} 
-    t = Tensor(T, backend, size(v)...)
+    t = Tensor(T, nothing, backend, size(v)...)
     write(t, v)
     return t
 end
@@ -372,7 +372,7 @@ end
 
 function make_volatile!(t::Tensor)
     @assert t.ispersistent
-    inner = Tensor(eltype(t), t.backend, size(t)...)
+    inner = Tensor(eltype(t), nothing, t.backend, size(t)...)
     write(inner, read(t)) 
     t.ptr = inner.ptr
     return nothing
