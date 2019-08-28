@@ -140,7 +140,17 @@ Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_uniform), args...) = f(arg
 
 Trace and compile a Flux model `f` with `args`.
 """
-function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
+function compile(
+        backend::Backend, 
+        f, 
+        args...; 
+        optimizer = Inference(), 
+        # if !isnothing, should be a callback that returns tensor descriptors that should
+        # be assigned into remote memory
+        isremote = nothing, 
+        kw...
+    )
+
     ctx = SnoopCtx(metadata = SnoopMeta())
 
     # Extract the parameter from all the inputs
@@ -177,16 +187,23 @@ function compile(backend::Backend, f, args...; optimizer = Inference(), kw...)
 
     # Instantiate the optimizer struct AFTER compilation to provide more memory for
     # profiling
-    opt = instantiate(optimizer, backend, opt_args...)
+    opt = instantiate(optimizer, backend, isremote, opt_args...)
 
     # Create tensors for the outputs
-    input_tensors = map(x -> Tensor(backend, x), args)
-    output_tensors = map(x -> Tensor(backend, x), outputs)
-    secondary_tensors = map(x -> Tensor(backend, x), secondary_outputs)
+    input_tensors = totensor(backend, inputs, isremote)
+    for (t,i) in zip(input_tensors, args)
+        write(t, i)
+    end
+
+    output_tensors = totensor(backend, outputs, isremote)
+    secondary_tensors = totensor(backend, secondary_outputs, isremote)
     length(secondary_tensors) == 0 && (secondary_tensors = Tensor[])
 
     return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
 end
+
+totensor(backend, A, ::Nothing) = map(x -> Tensor(backend, x), A)
+totensor(backend, A, f) = map(x -> f(x) ? PersistentTensor(backend, x) : Tensor(backend, x), A)
 
 struct FluxExecutable{B,T,M,N}
     ex::Executable{B}
@@ -232,7 +249,7 @@ struct InferenceState
     tensors::Vector{Tensor}
 end
 
-InferenceState(backend, v::Vector) = InferenceState(Tensor.(Ref(backend), v))
+InferenceState(backend, x::Any, v::Vector) = InferenceState(Tensor.(Ref(backend), v))
 
 create(::Inference, inputs, outputs, params, data) = (data,), params, ()
 getinputs(I::InferenceState) = I.tensors
@@ -302,10 +319,28 @@ mutable struct SGDState
     outputs::Vector{Tensor}
 end
 
-function SGDState(backend::Backend, inputs::Vector, outputs::Vector)
+function SGDState(
+        backend::Backend, 
+        isremote, 
+        param_nodes, 
+        param_data::Vector, 
+        update_nodes,
+        update_data::Vector
+    )
+
+    param_tensors = totensor(backend, param_nodes, isremote)
+    for (t, i) in zip(param_tensors, param_data)
+        write(t, i)
+    end
+
+    update_tensors = totensor(backend, update_nodes, isremote)
+    for (t, i) in zip(update_tensors, update_data)
+        write(t, i)
+    end
+
     return SGDState(
-        map(x -> Tensor(backend, x), inputs),
-        map(x -> Tensor(backend, x), outputs)
+        param_tensors,
+        update_tensors,
     )
 end
 
@@ -317,7 +352,7 @@ function create(sgd::SGD, inputs, outputs, params, data)
     updates = map(zip(params, backprop_nodes)) do x
         n, bn = x
 
-        # Backprop through LSTMs results in things being transposed - which is helpful.
+        # Backprop through LSTMs results in things being transposed - which is not helpful.
         # Untranspose them here ...
         if size(n) == reverse(size(bn))
             bn = transpose(bn)
@@ -330,7 +365,7 @@ function create(sgd::SGD, inputs, outputs, params, data)
     param_tensors = data
     update_tensors = data
 
-    args = (param_tensors, update_tensors)
+    args = (params, param_tensors, updates, update_tensors)
     return (
         args,
         params,

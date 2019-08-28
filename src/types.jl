@@ -307,10 +307,10 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 struct Persistent end
 
 _tensor(backend::Backend{CPU}, ::Nothing, args...) =
-    Lib.create_tensor(getpointer(backend), element, shape)
+    Lib.create_tensor(getpointer(backend), args...)
 
 _tensor(backend::Backend{GPU}, ::Nothing, args...) =
-    Lib.create_tensor(getpointer(backend), element, shape)
+    Lib.create_tensor(getpointer(backend), args...)
 
 _tensor(backend::Backend{CPU}, ::Persistent, args...) = 
     Lib.create_cpu_persistent_tensor(getpointer(backend), args...)
@@ -356,6 +356,7 @@ function Tensor(backend, v::AbstractArray{T,N}) where {T,N}
 end
 
 function PersistentTensor(backend, v::AbstractArray{T,N}) where {T,N}
+    @info "Making a persistent tensor!"
     t = Tensor(T, Persistent(), backend, size(v)...)
     write(t, v)
     return t
@@ -392,6 +393,8 @@ function Base.write(t::Tensor, A::Array{T,N}) where {T,N}
         convert(UInt, sizeof(A))
     )
 end
+# no-op trying to write nodes to tensors because nodes don't actually contain any data
+Base.write(t::Tensor, ::Node) = nothing
 
 Base.read(t::Tensor) = _read(t, eltype(t), size(t))
 function _read(t::Tensor, ::Type{T}, dims::NTuple{N, Integer}) where {T,N}
