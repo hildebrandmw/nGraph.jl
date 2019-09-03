@@ -108,7 +108,7 @@ int64_t PerfCounterTranslator::_length()
 std::tuple<std::string, size_t> PerfCounterTranslator::_getindex(int64_t i)
 {
     ngraph::runtime::PerformanceCounter counter = m_counters.at(i);
-    return make_tuple(counter.name(), counter.microseconds());
+    return make_tuple(counter.get_node()->get_name(), counter.microseconds());
 }
 
 /////
@@ -208,29 +208,24 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.method("tensor_write", [](
         std::shared_ptr<ngraph::runtime::Tensor> tensor,
         void* p,
-        size_t offset,
         size_t n)
     {
-        tensor->write(p, offset, n);
+        tensor->write(p, n);
     });
 
     mod.method("tensor_read", [](
         std::shared_ptr<ngraph::runtime::Tensor> tensor,
         void* p,
-        size_t offset,
         size_t n)
     {
-        tensor->read(p, offset, n);
+        tensor->read(p, n);
     });
 
     ///// Node
     mod.add_type<ngraph::Node>("Node")
-        //.method("get_sync", &ngraph::Node::get_sync)
-        //.method("set_sync", &ngraph::Node::set_sync)
-        //.method("clear_sync", &ngraph::Node::clear_sync)
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
-        .method("copy_with_new_args", &ngraph::Node::copy_with_new_args)
+        .method("copy_with_new_inputs", &ngraph::Node::copy_with_new_args)
         .method("add_control_dependency", &ngraph::Node::add_control_dependency)
         ///// Outputs
         // Return the number of outputs for the op
@@ -265,11 +260,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                  const std::shared_ptr<ngraph::Node>& node,
                  const int64_t index)
              {
-                 std::set<ngraph::descriptor::Input*> output_inputs = node->get_output_inputs(index);
+                 //std::set<ngraph::descriptor::Input*> output_inputs = node->get_output_inputs(index);
+                 auto output_inputs = node->output(index).get_target_inputs();
                  std::vector<std::shared_ptr<ngraph::Node>> nodes;
                  for (auto input : output_inputs)
                  {
-                    nodes.push_back(input->get_node());
+                    // Input<Node> just store the raw pointers.
+                    //
+                    // Find the canonical shared_ptr from the node and use that.
+                    nodes.push_back(input.get_node()->shared_from_this());
                  }
                  return NodeWrapper(nodes);
              })
@@ -305,12 +304,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             int64_t index)
         {
             // Get the set of nodes that use this output
-            const std::set<ngraph::descriptor::Input*>& users = node->get_output_inputs(index);
+            //const std::set<ngraph::descriptor::Input*>& users = node->get_output_inputs(index);
+            auto users = node->output(index).get_target_inputs();
 
             // Predicate to check if a node is a Result
-            auto predicate = [](ngraph::descriptor::Input* input)
+            auto predicate = [](ngraph::Input<ngraph::Node> input)
             {
-                return input->get_node()->description() == "Result";
+                return input.get_node()->description() == "Result";
             };
             return std::all_of(users.begin(), users.end(), predicate);
         });
@@ -351,7 +351,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_name", &ngraph::Function::get_name)
         .method("get_parameters", &ngraph::Function::get_parameters)
         .method("get_temporary_pool_size", &ngraph::Function::get_temporary_pool_size)
-        .method("get_pmem_pool_size", &ngraph::Function::get_pmem_pool_size)
+        .method("get_remote_pool_size", &ngraph::Function::get_remote_pool_size)
         .method("set_jl_callback", &ngraph::Function::set_jl_callback)
         .method("clear_jl_callback", &ngraph::Function::clear_jl_callback)
         .method("get_jl_callback", &ngraph::Function::get_jl_callback)
@@ -387,9 +387,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     ///// Adjoint
     /////
 
-    mod.add_type<ngraph::autodiff::Adjoints>("Adjoints")
-        .constructor<const ngraph::NodeVector&, const ngraph::NodeVector&>();
-        //.method("backprop_node", &ngraph::autodiff::Adjoints::backprop_node);
+    mod.add_type<ngraph::autodiff::Adjoints>("Adjoints");
+    mod.method("make_adjoints", [](const ngraph::NodeVector& y, const ngraph::NodeVector& c)
+    {
+        std::vector<ngraph::Output<ngraph::Node>> oy;
+        std::vector<ngraph::Output<ngraph::Node>> oc;
+
+        auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); };
+        std::transform(y.begin(), y.end(), oy.begin(), op);
+        std::transform(c.begin(), c.end(), oc.begin(), op);
+
+        return ngraph::autodiff::Adjoints(oy, oc);
+    });
 
     mod.method("backprop_node", [](
         ngraph::autodiff::Adjoints& adjoints,
@@ -767,8 +776,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
         .method("create", &ngraph::runtime::Backend::create)
-        .method("compile", &ngraph::runtime::Backend::compile)
         .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function);
+
+    mod.method("compile", [](std::shared_ptr<ngraph::runtime::Backend> backend,
+                             std::shared_ptr<ngraph::Function> func,
+                             bool enable_performance_data)
+        {
+            return backend->compile(func, enable_performance_data);
+        });
 
     mod.method("create_tensor", [](
         ngraph::runtime::Backend* backend,
@@ -855,7 +870,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     // Graph Utils
-    mod.method("my_insert_new_node_between", &ngraph::my_insert_new_node_between);
+    mod.method("my_insert_new_node_between", &ngraph::special_insert_new_node_between);
 
     mod.method("op_move", [](const std::shared_ptr<ngraph::Node> &arg, size_t n){
         auto a = std::make_shared<ngraph::op::Move>(arg, n);

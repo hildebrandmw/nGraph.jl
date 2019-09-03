@@ -282,7 +282,7 @@ function create(::Type{Gradient}, backend, args::NamedTuple)
 
     # Create a backprop node for each parameter
     @info "Inserting Backprop Nodes"
-    adjoints = Adjoints(first(outputs), constant(Float32(1)))
+    adjoints = Lib.make_adjoints(first(outputs), constant(Float32(1)))
     gradients = [backprop_node(adjoints, n) for n in params]
 
     # Create tensors for the parameters and gradients
