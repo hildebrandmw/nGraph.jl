@@ -15,6 +15,8 @@
 #include "ngraph/runtime/tensor.hpp"
 #include "ngraph/serializer.hpp"
 
+#include "ngraph/runtime/allocator.hpp"
+
 // CPU Related Stuff
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
 #include "ngraph/runtime/cpu/cpu_op_annotations.hpp"
@@ -225,7 +227,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::Node>("Node")
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
-        .method("copy_with_new_inputs", &ngraph::Node::copy_with_new_args)
+        .method("copy_with_new_args", &ngraph::Node::copy_with_new_args)
         .method("add_control_dependency", &ngraph::Node::add_control_dependency)
         ///// Outputs
         // Return the number of outputs for the op
@@ -316,7 +318,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         });
 
     mod.add_type<ngraph::NodeVector>("NodeVector")
-        .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node> node)
+        .method("push!", [](ngraph::NodeVector& nodes, std::shared_ptr<ngraph::Node>& node)
         {
             nodes.push_back(node);
         });
@@ -390,10 +392,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::autodiff::Adjoints>("Adjoints");
     mod.method("make_adjoints", [](const ngraph::NodeVector& y, const ngraph::NodeVector& c)
     {
-        std::vector<ngraph::Output<ngraph::Node>> oy;
-        std::vector<ngraph::Output<ngraph::Node>> oc;
+        ngraph::OutputVector oy = ngraph::OutputVector(y.size());
+        ngraph::OutputVector oc = ngraph::OutputVector(c.size());
 
-        auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); };
+        auto op = [](std::shared_ptr<ngraph::Node> node){ 
+            return node->output(0);
+        };
+
         std::transform(y.begin(), y.end(), oy.begin(), op);
         std::transform(c.begin(), c.end(), oc.begin(), op);
 
@@ -775,8 +780,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
-        .method("create", &ngraph::runtime::Backend::create)
         .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function);
+        //.method("set_host_memory_allocator", &ngraph::runtime::Backend::set_host_memory_allocator);
+
+    mod.method("create", [](const std::string& type)
+        {
+            return ngraph::runtime::Backend::create(type, false);
+        });
 
     mod.method("compile", [](std::shared_ptr<ngraph::runtime::Backend> backend,
                              std::shared_ptr<ngraph::Function> func,
@@ -870,7 +880,20 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     });
 
     // Graph Utils
-    mod.method("my_insert_new_node_between", &ngraph::special_insert_new_node_between);
+    mod.method("special_insert_new_node_between", [](
+        const std::shared_ptr<ngraph::Node>& src_node,
+        size_t src_output_index,
+        const std::shared_ptr<ngraph::Node>& dst_node,
+        size_t dst_input_index,
+        const std::shared_ptr<ngraph::Node>& new_node) 
+    {
+        return ngraph::special_insert_new_node_between(
+            src_node,
+            src_output_index,
+            dst_node,
+            dst_input_index,
+            new_node);
+    });
 
     mod.method("op_move", [](const std::shared_ptr<ngraph::Node> &arg, size_t n){
         auto a = std::make_shared<ngraph::op::Move>(arg, n);
@@ -1012,6 +1035,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
         .method("set_pool_dir", &ngraph::pmem::PMEMManager::set_pool_dir);
 
+    mod.method("set_pmm_allocator", [](const std::shared_ptr<ngraph::runtime::Backend> backend)
+    {
+        std::cout << "Setting PMM Allocator" << std::endl;
+        backend->set_host_memory_allocator(ngraph::runtime::get_pmm_allocator());
+    });
 #endif
 }
 

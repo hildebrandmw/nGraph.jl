@@ -152,10 +152,11 @@ function backend_type(s::String)
 end
 
 struct Backend{T <: AbstractBackendType}
-    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10shared_ptrIiE}
 end
 wraptype(::Backend) = HasPointer()
 
+# Pass `false` to the "must_support_dynamic" flag for now.
 Backend(str::String = "CPU") = Backend{backend_type(str)}(Lib.create(str))
 
 #####
@@ -281,7 +282,7 @@ is_mkldnn(n::NodeLike) = Lib.node_is_mkldnn_op(getpointer(n))
 set_mkldnn(n::NodeLike) = Lib.node_set_mkldnn_op(getpointer(n))
 
 splice(source::NodeLike, source_output, dest::NodeLike, dest_input, x::NodeLike) = 
-    Lib.my_insert_new_node_between(
+    Lib.special_insert_new_node_between(
         getpointer(source), 
         convert(UInt, source_output - 1),
         getpointer(dest), 
@@ -415,7 +416,7 @@ end
 const Adjoints = Lib.AdjointsAllocated
 wraptype(::Adjoints) = IsPointer()
 
-Adjoints(x, y) = Lib.Adjoints(NodeVector(x), NodeVector(y))
+make_adjoints(x, y) = Lib.make_adjoints(NodeVector(x), NodeVector(y))
 backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, getpointer(x)))
 
 #####

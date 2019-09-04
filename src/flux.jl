@@ -161,7 +161,6 @@ function compile(
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
-    #params = collect(values(ctx.metadata.parameters))
     params = ctx.metadata.primary
     data = [ctx.metadata.data[p] for p in params]
 
@@ -346,7 +345,7 @@ end
 
 function create(sgd::SGD, inputs, outputs, params, data)
     # Create a backprop node for each parameter
-    adjoints = Adjoints(first(outputs), -constant(sgd.learning_rate))
+    adjoints = make_adjoints(first(outputs), -constant(sgd.learning_rate))
 
     backprop_nodes = [backprop_node(adjoints, n) for n in params]
     updates = map(zip(params, backprop_nodes)) do x
