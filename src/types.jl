@@ -96,7 +96,7 @@ Strides(x::Tuple) = Strides(collect(x))
 const NodeVector = Union{Lib.NodeVectorAllocated, Lib.NodeVectorRef}
 wraptype(::NodeVector) = IsPointer()
 
-NodeVector(x, args...) = NodeVector((x, args...))
+NodeVector(args...) = NodeVector(args)
 function NodeVector(args::Union{Tuple,Vector})
     p = Lib.NodeVector()
     for arg in args
@@ -390,7 +390,6 @@ function Base.write(t::Tensor, A::Array{T,N}) where {T,N}
     GC.@preserve A Lib.tensor_write(
         getpointer(t), 
         Ptr{Cvoid}(pointer(A)), 
-        convert(UInt, 0),
         convert(UInt, sizeof(A))
     )
 end
@@ -403,7 +402,6 @@ function _read(t::Tensor, ::Type{T}, dims::NTuple{N, Integer}) where {T,N}
     Lib.tensor_read(
         getpointer(t),
         Ptr{Cvoid}(pointer(A)),
-        convert(UInt, 0),
         convert(UInt, sizeof(t)),
     )
     return A
@@ -478,7 +476,7 @@ get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(getpointer(f))
 get_results(f::NFunction) = Lib.get_results(getpointer(f))
 get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
 get_temporary_pool_size(f::NFunction) = convert(Int, Lib.get_temporary_pool_size(getpointer(f)))
-get_pmem_pool_size(f::NFunction) = Lib.get_pmem_pool_size(getpointer(f))
+get_pmem_pool_size(f::NFunction) = Lib.get_remote_pool_size(getpointer(f))
 
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))

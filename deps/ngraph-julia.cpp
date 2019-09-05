@@ -227,7 +227,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::Node>("Node")
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description)
-        .method("copy_with_new_args", &ngraph::Node::copy_with_new_args)
         .method("add_control_dependency", &ngraph::Node::add_control_dependency)
         ///// Outputs
         // Return the number of outputs for the op
@@ -284,6 +283,17 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                  }
                  return NodeWrapper(nodes);
              });
+
+    mod.method("copy_with_new_args", [](
+                const std::shared_ptr<ngraph::Node>& node,
+                const ngraph::NodeVector& args)
+    {
+        // Create an OutputVector from the arguments 
+        ngraph::OutputVector ov = ngraph::OutputVector(args.size());    
+        auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); }; 
+        std::transform(args.begin(), args.end(), ov.begin(), op);
+        return node->copy_with_new_inputs(ov);
+    });
 
     // Give me a node, I'll give yah a tensor!
     mod.method("get_output_tensor_ptr", [](
@@ -738,7 +748,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const std::shared_ptr<ngraph::Node>& arg,
         const ngraph::AxisSet& reduction_axes)
     {
-        auto a = std::make_shared<ngraph::op::Sum>(arg, reduction_axes);
+        auto a = std::make_shared<ngraph::op::Sum>(arg->output(0), reduction_axes);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
