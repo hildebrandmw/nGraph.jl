@@ -43,5 +43,6 @@ include("gpu.jl")
 #include("models/inception_v4.jl")
 include("models/resnet.jl")
 include("models/test.jl")
+include("onnx.jl")
 
 end # module

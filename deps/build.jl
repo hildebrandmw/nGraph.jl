@@ -28,7 +28,7 @@ end
 
 # Fetch repo
 url = "https://github.com/darchr/ngraph"
-branch = "mh/pmem"
+branch = "mh/autotm"
 
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
@@ -62,7 +62,7 @@ cmake_args = [
     "-DCMAKE_C_COMPILER=$CC",
     "-DCMAKE_CXX_COMPILER=$CXX",
     "-DCMAKE_INSTALL_PREFIX=$(joinpath(@__DIR__, "usr"))",
-    #"-DNGRAPH_ONNX_IMPORT_ENABLE=TRUE",
+    "-DNGRAPH_ONNX_IMPORT_ENABLE=TRUE",
 ]
 
 # Add additional parameters

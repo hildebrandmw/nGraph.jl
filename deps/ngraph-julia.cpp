@@ -23,7 +23,7 @@
 #include "ngraph/runtime/cpu/cpu_helper.hpp"
 
 // CPU ops
-#include "ngraph/runtime/cpu/op/batch_dot.hpp"
+#include "ngraph/runtime/cpu/op/batch_mat_mul_transpose.hpp"
 #include "ngraph/runtime/cpu/op/convert_layout.hpp"
 #include "ngraph/runtime/cpu/op/rnn_utils.hpp"
 #include "ngraph/runtime/cpu/op/lstm.hpp"
@@ -39,6 +39,9 @@
 #ifdef NGRAPH_PMDK_ENABLE
 #include "ngraph/pmem.hpp"
 #endif
+
+// ONNX
+#include "ngraph/frontend/onnx_import/onnx.hpp"
 
 /////
 ///// Struct for wrapping Node vectors
@@ -451,7 +454,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         bool transpose_x,
         bool transpose_y)
     {
-        auto a = std::make_shared<ngraph::op::BatchDot>(x, y, transpose_x, transpose_y);
+        auto a = std::make_shared<ngraph::op::BatchMatMulTranspose>(x, y, transpose_x, transpose_y);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
@@ -1051,5 +1054,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         backend->set_host_memory_allocator(ngraph::runtime::get_pmm_allocator());
     });
 #endif
+
+    // ONNX Stuff
+    mod.method("read_onnx", [](const std::string& filename)
+    {
+        return ngraph::onnx_import::import_onnx_model(filename);
+    });
 }
 

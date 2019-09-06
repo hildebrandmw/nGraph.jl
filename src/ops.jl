@@ -350,10 +350,7 @@ Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
 function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
     as = AxisSet(axes, N)
     node = Lib.op_sum(getpointer(x), as)
-    n = Node{T, N - length(axes)}(node)
-
-    @show size(n)
-    return n
+    return Node{T, N - length(axes)}(node)
 end
 
 #####

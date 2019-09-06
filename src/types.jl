@@ -477,6 +477,7 @@ get_results(f::NFunction) = Lib.get_results(getpointer(f))
 get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
 get_temporary_pool_size(f::NFunction) = convert(Int, Lib.get_temporary_pool_size(getpointer(f)))
 get_pmem_pool_size(f::NFunction) = Lib.get_remote_pool_size(getpointer(f))
+get_constants(f::NFunction) = collect(Iterators.filter(x -> description(x) == "Constant", f))
 
 Base.length(f::NFunction) = Lib._length(f.ops)
 Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
