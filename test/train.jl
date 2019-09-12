@@ -11,10 +11,9 @@ end
 
     x = Float32[1.0, 2.0, 3.0]
     backend = nGraph.Backend()
-    X = nGraph.Tensor(backend, x)
 
     learning_rate = Float32(0.2)
-    ex = nGraph.compile(backend, f, X; optimizer = nGraph.SGD(learning_rate))
+    ex = nGraph.compile(backend, f, x; optimizer = nGraph.SGD(learning_rate))
 
     # We should have one implicit input/output: P
     @test length(ex.optimizer.inputs) == 1
@@ -23,7 +22,7 @@ end
     @show read(first(ex.optimizer.inputs))
     @show read(first(ex.optimizer.outputs))
 
-    Z = ex(X)
+    Z = ex()
     @show read(Z)
 
     @show read(first(ex.optimizer.inputs))
@@ -42,8 +41,8 @@ end
     # Run this for a few more iterations - see if we can get the implicit parameters to be
     # negative the input
     for i in 1:20
-        println(read(ex(X)))
+        println(read(ex()))
     end
 
-    @test read(ex(X))[] < 1E-3
+    @test read(ex())[] < 1E-3
 end

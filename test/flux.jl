@@ -8,10 +8,9 @@
     expected = C(x)
 
     backend = nGraph.Backend()
-    X = nGraph.Tensor(backend, x)
-    f = nGraph.compile(backend, C, X)
+    f = nGraph.compile(backend, C, x)
 
-    Z = f(X)
+    Z = f()
 
     collected_Z = read(Z)
 
@@ -32,9 +31,7 @@ end
 
     # nGraph compile
     backend = nGraph.Backend()
-    X = nGraph.Tensor(backend, x)
-    f = nGraph.compile(backend, m, X)
-    Z = f(X)
+    f = nGraph.compile(backend, m, x)
 
-    @test isapprox(expected, read(Z))
+    @test isapprox(expected, read(f()))
 end

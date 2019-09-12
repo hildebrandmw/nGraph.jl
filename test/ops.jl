@@ -13,15 +13,8 @@ end
     backend = nGraph.Backend()
 
     x = rand(Float32, 100)
-    X = nGraph.Node(x)
-
-    Y = reshape(X, 1, :)
-    @test isa(X, nGraph.Node{Float32,1})
-    @test isa(Y, nGraph.Node{Float32,2})
-
-    X = nGraph.Tensor(backend, x)
-    f = nGraph.compile(backend, x -> reshape(x, 1, :), X)
-    Z = f(X)
+    f = nGraph.compile(backend, x -> reshape(x, 1, :), x)
+    Z = f()
     @test reshape(x, 1, :) == read(Z)
 
     # More extravagent reshape
@@ -31,10 +24,9 @@ end
     N = nGraph.Node(x)
     M = g(N)
     @test size(M) == (6, 5, 4, 3, 2)
-    X = nGraph.Tensor(backend, x)
-    f = nGraph.compile(backend, g, X)
+    f = nGraph.compile(backend, g, x)
 
-    @test g(x) == read(f(X))
+    @test g(x) == read(f())
 end
 
 @testset "Softmax" begin
@@ -43,18 +35,12 @@ end
     # 1D case
     x = rand(Float32, 100)
     z = softmax(x)
-    X = nGraph.Tensor(backend, x)
-
-    f = nGraph.compile(backend, softmax, X)
-    Z = f(X)
-    @test isapprox(z, read(Z))
+    f = nGraph.compile(backend, softmax, x)
+    @test isapprox(z, read(f()))
 
     # 2D case
     x = rand(Float32, 100, 100) 
     z = softmax(x)
-    X = nGraph.Tensor(backend, x)
-
-    f = nGraph.compile(backend, softmax, X)
-    Z = f(X)
-    @test isapprox(z, read(Z))
+    f = nGraph.compile(backend, softmax, x)
+    @test isapprox(z, read(f()))
 end

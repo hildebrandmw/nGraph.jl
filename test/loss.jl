@@ -6,10 +6,7 @@
     z = Flux.crossentropy(x, y)
 
     backend = nGraph.Backend()
-    X = nGraph.Tensor(backend, x)
-    Y = nGraph.Tensor(backend, y)
+    f = nGraph.compile(backend, Flux.crossentropy, x, y)
 
-    f = nGraph.compile(backend, Flux.crossentropy, X, Y)
-
-    @test isapprox(z, read(f(X,Y))[])
+    @test isapprox(z, read(f())[])
 end

@@ -130,10 +130,21 @@ constant(x::AbstractArray{T,N}) where {T,N} =
 function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 1) where {T,N}
     # Construct the convolution node.
     strides = Strides(expand(N-2, stride))
-    padding = CoordinateDiff(expand(N-2, pad))
+
+    expand_pad = expand(N, pad)
+    padding_below = CoordinateDiff(expand_pad[1:div(N, 2)])
+    padding_above = CoordinateDiff(expand_pad[(div(N, 2) + 1):N])
     dilations = Strides(expand(N-2, dilation))
 
-    node = Lib.op_convolution(getpointer(x), getpointer(w), strides, dilations, padding, padding)
+    node = Lib.op_convolution(
+        getpointer(x), 
+        getpointer(w), 
+        strides, 
+        dilations, 
+        padding_above, 
+        padding_below
+    )
+
     return Node{T,N}(node)
 end
 
@@ -195,8 +206,8 @@ Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 ##### Embedding
 #####
 
-embedding(data::Node, weights::Node) =
-    Node(Lib.op_embedding(getpointer(data), getpointer(weights)))
+embedding(data::Node, weights) =
+    Node(Lib.op_embedding(getpointer(data), getpointer(Node(weights))))
 
 #####
 ##### Indexing
@@ -249,6 +260,19 @@ function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where
 
     ptr = Lib.op_maxpool(getpointer(x), window_shape, strides, padding_below, padding_above)
     return Node{T,N}(ptr)
+end
+
+stride_size(c::NNlib.PoolDims{N,K,S,P,D}) where {N,K,S,P,D} = S
+pad_size(c::NNlib.PoolDims{N,K,S,P,D}) where {N,K,S,P,D} = P
+function NNlib.maxpool(x::Node{T,N}, dims::NNlib.PoolDims) where {T,N}
+    ptr = Lib.op_maxpool(
+        getpointer(x),
+        Shape(NNlib.kernel_size(dims)),             # window_shape
+        Strides(stride_size(dims)),                 # strides (same as window_shape)
+        Shape(pad_size(dims)[1:div(N,2)]),          # padding_below
+        Shape(pad_size(dims)[(div(N,2) + 1):N]),    # padding_above
+    )
+    return Node{T,N}(ptr)     
 end
 
 #####
