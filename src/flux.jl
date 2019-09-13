@@ -101,7 +101,9 @@ function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Flux.Tracker.Tra
     if haskey(ctx.metadata.parameters, x)
         node = ctx.metadata.parameters[x]::Node{T,N}
     else
-        node = Cassette.recurse(ctx, f, x)::Node{T,N}
+        # Don't recurse into the Node Creation since we implicitly turn Arrays into 
+        # constants, which will happen if we do recurse
+        node = f(x)::Node{T,N}
         ctx.metadata.parameters[x] = node
         push!(ctx.metadata.primary, node)
     end
@@ -130,6 +132,9 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
 
 Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
+
+# Slurp up constructors to Nodes from standard Arrays to become constants.
+Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Array{T,N}) where {T,N} = constant(x)
 
 # Skip recursing initialization calls - recursing turns out to take a very, very long time.
 Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_normal), args...) = f(args...)
@@ -255,14 +260,16 @@ getinputs(I::InferenceState) = I.tensors
 getoutputs(I::InferenceState) = ()
 update!(I::InferenceState) = nothing
 
-# Just get the Gradients
+#####
+##### Just get the Gradients
+#####
 struct Gradient
     params::Vector
     gradients::Vector
     _id::IdDict
 end
 
-function create(::Type{Gradient}, backend, args::NamedTuple)
+function create(::Type{Gradient}, args::NamedTuple)
     # Unwrap everything and hijack the ID Dict mapping Tracked Arrays to nodes so
     # we can create a new ID Dict mapping Tracked Arrays to Tensors.
     #
@@ -271,6 +278,9 @@ function create(::Type{Gradient}, backend, args::NamedTuple)
     inputs = args.inputs
     outputs = args.outputs
     params = args.params
+    data = args.data
+
+    @show params
 
     # Map params nodes back to their parent TrackedArray
     @info "Reversing ID Dict"
@@ -281,33 +291,46 @@ function create(::Type{Gradient}, backend, args::NamedTuple)
 
     # Create a backprop node for each parameter
     @info "Inserting Backprop Nodes"
-    adjoints = Lib.make_adjoints(first(outputs), constant(Float32(1)))
+    adjoints = make_adjoints(first(outputs), constant(one(Float32)))
     gradients = [backprop_node(adjoints, n) for n in params]
 
-    # Create tensors for the parameters and gradients
-    param_tensors = Tensor[]
-    gradient_tensors = Tensor[]
-    grad_map = IdDict()
-    @info "Creating Tensors"
-    for n in params
-        pt = Tensor(backend, n)
-        gt = Tensor(backend, n)
+    args = (
+        data = data,
+        params = params,
+        gradients = gradients,
+        id_rev = id_rev,
+    )
 
-        grad_map[id_rev[n]] = (pt, gt)
-
-        push!(param_tensors, pt)
-        push!(gradient_tensors, gt)
-    end
-    G = Gradient(param_tensors, gradient_tensors, grad_map)
-
-    return G, params, gradients
+    return args, params, gradients
 end
 
 getinputs(G::Gradient) = G.params
 getoutputs(G::Gradient) = G.gradients
 update!(::Gradient) = nothing
 
-# Standard SGD
+function instantiate(::Type{Gradient}, backend, ::Nothing, data, params, gradients, id_rev)
+    param_tensors = Tensor[] 
+    gradient_tensors = Tensor[]
+    grad_map = IdDict()
+    for (d, n, g) in zip(data, params, gradients)
+        @assert size(n) == size(g) 
+        @assert size(d) == size(n)
+
+        pt = Tensor(backend, n)
+        write(pt, d)
+        gt = Tensor(backend, g)
+
+        grad_map[id_rev[n]] = (pt, gt)
+
+        push!(param_tensors, pt)
+        push!(gradient_tensors, gt)
+    end
+    return Gradient(param_tensors, gradient_tensors, grad_map)
+end
+
+#####
+##### Standard SGD
+#####
 struct SGD{T <: Number}
     learning_rate::T
 end

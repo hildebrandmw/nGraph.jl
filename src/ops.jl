@@ -206,8 +206,14 @@ Base.:*(w::AbstractArray, x::Node) = Node(w) * x
 ##### Embedding
 #####
 
-embedding(data::Node, weights) =
-    Node(Lib.op_embedding(getpointer(data), getpointer(Node(weights))))
+function embedding(data::Node, weights)
+    node = Node(Lib.op_embedding(
+        getpointer(data .- 1),          # Need to subtract 1 to get to C++ base 0 indexing
+        getpointer(Node(weights))
+    ))
+
+    return node
+end
 
 #####
 ##### Indexing

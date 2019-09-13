@@ -1,12 +1,13 @@
 using nGraph
 using Test
+using Random
 using Flux, BenchmarkTools, Zygote
 
-#include("backprop.jl")
 include("types.jl")
 include("ops.jl")
 include("loss.jl")
 include("flux.jl")
+include("backprop.jl")
 include("train.jl")
 include("models/mnist.jl")
 include("models/inception.jl")

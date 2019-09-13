@@ -85,6 +85,21 @@ int64_t NodeWrapper::_length()
 }
 
 /////
+///// Template for making constants
+/////
+
+template <typename T>
+std::shared_ptr<ngraph::Node> op_constant(
+    const ngraph::element::Type& type,
+    ngraph::Shape& shape,
+    const jlcxx::ArrayRef<T, 1>& jl_values)
+{
+    std::vector<T> values = std::vector<T>(jl_values.begin(), jl_values.end());
+    auto a = std::make_shared<ngraph::op::Constant>(type, shape, values);
+    return std::dynamic_pointer_cast<ngraph::Node>(a);
+}
+
+/////
 ///// Class for extracting performance data from GPU Backend
 /////
 
@@ -490,9 +505,21 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         ngraph::Shape shape,
         const jlcxx::ArrayRef<float, 1>& jl_values)
     {
-        std::vector<float> values = std::vector<float>(jl_values.begin(), jl_values.end());
-        auto a = std::make_shared<ngraph::op::Constant>(type, shape, values);
-        return std::dynamic_pointer_cast<ngraph::Node>(a);
+        return op_constant<float>(type, shape, jl_values);
+    });
+    mod.method("op_constant", [](
+        const ngraph::element::Type& type,
+        ngraph::Shape shape,
+        const jlcxx::ArrayRef<int64_t, 1>& jl_values)
+    {
+        return op_constant<int64_t>(type, shape, jl_values);
+    });
+    mod.method("op_constant", [](
+        const ngraph::element::Type& type,
+        ngraph::Shape shape,
+        const jlcxx::ArrayRef<int32_t, 1>& jl_values)
+    {
+        return op_constant<int32_t>(type, shape, jl_values);
     });
 
     mod.method("op_convolution", [](
