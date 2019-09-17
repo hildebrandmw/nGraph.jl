@@ -1077,7 +1077,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     mod.method("set_pmm_allocator", [](const std::shared_ptr<ngraph::runtime::Backend> backend)
     {
-        std::cout << "Setting PMM Allocator" << std::endl;
         backend->set_host_memory_allocator(ngraph::runtime::get_pmm_allocator());
     });
 #endif

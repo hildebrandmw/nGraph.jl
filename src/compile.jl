@@ -28,8 +28,10 @@ end
 wraptype(::Executable) = HasPointer()
 
 # convenience unwrapper
-compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector; kw...) = 
-    compile(backend::Backend, NFunction(outputs, inputs); kw...)
+function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector; kw...)
+    fn = NFunction(outputs, inputs)
+    compile(backend::Backend, fn; kw...)
+end
 
 function compile(
         backend::Backend, 

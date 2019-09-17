@@ -1,11 +1,6 @@
 # Test the embedding table backprop against Zygote
-#
-# This shadows the embedding operating defined in nGraph.jl so standard vectors
-# will be dispatched here.
-nGraph.embedding(indices::Vector, weights::Matrix) = view(weights, :, indices)
-
 @testset "Testing Embedding Backprop" begin
-    weights_size = (10, 10)
+    weights_size = (20, 10)
     indices_size = 5
 
     bias_size = (first(weights_size), indices_size)
@@ -54,4 +49,25 @@ nGraph.embedding(indices::Vector, weights::Matrix) = view(weights, :, indices)
     println()
 
     @test isapprox(zygote_gradient, ngraph_gradient)
+
+    #####
+    ##### Test 3 dimensional stuff
+    #####
+
+    # weights = randn(Float32, weights_size)
+
+    # index_size = 2
+    # indices_total_size = index_size^2
+    # indices = shuffle(Int32(1):Int32(last(weights_size)))[1:indices_total_size]
+    # indices = reshape(indices, index_size, index_size)
+
+    # bias = randn(Float32, (first(weights_size), index_size, index_size))
+
+    # f = (indices, weights) -> sum(bias .+ embedding(indices, weights))
+
+    # zygote_gradient = Zygote.gradient(f, indices, weights)[2]
+    # @info "Zygote Gradient"
+    # println()
+    # display(zygote_gradient)
+    # println()
 end

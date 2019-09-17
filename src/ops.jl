@@ -120,8 +120,10 @@ Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
 #####
 
 constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
-constant(x::AbstractArray{T,N}) where {T,N} =
-    Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
+function constant(x::AbstractArray{T,N}) where {T,N}
+    @info "Making Constant of size: $(size(x))"
+    return Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
+end
 
 #####
 ##### Convolution
@@ -310,6 +312,16 @@ Base.:-(a::Node) = negative(a)
 parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
 parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Shape(())))
 parameter(x::Node) = x
+
+#####
+##### permutedims
+#####
+
+function Base.permutedims(x::N, perm) where {N <: Node}
+    av = AxisVector(perm, length(perm))
+    shape = Shape([size(x)[i] for i in perm])
+    return N(Lib.op_reshape(getpointer(x), av, shape))
+end
 
 #####
 ##### Power
