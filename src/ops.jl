@@ -120,10 +120,8 @@ Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
 #####
 
 constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
-function constant(x::AbstractArray{T,N}) where {T,N}
-    @info "Making Constant of size: $(size(x))"
-    return Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
-end
+constant(x::AbstractArray{T,N}) where {T,N} =
+    Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
 
 #####
 ##### Convolution
@@ -304,6 +302,22 @@ _forward(::typeof(min)) = minimum
 negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(getpointer(a)))
 
 Base.:-(a::Node) = negative(a)
+
+#####
+##### One Hot
+#####
+
+function onehot(x::Node{T,N}, max_index, onehot_index) where {T,N}
+    # Create the output size from `max_index` and `onehot_index`
+    sz = size(x) 
+    output_sz = collect(splicein(sz, max_index, onehot_index))
+
+    return Node{T,N+1}(Lib.op_onehot(
+        getpointer(x), 
+        Shape(output_sz), 
+        convert(UInt, N + 1 - onehot_index)
+    ))
+end
 
 #####
 ##### Parameter

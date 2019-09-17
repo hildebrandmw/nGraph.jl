@@ -134,10 +134,7 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
 # Slurp up constructors to Nodes from standard Arrays to become constants.
-function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Array{T,N}) where {T,N} 
-    @info "Making constant of size: $(sizeof(x))"
-    return constant(x)
-end
+Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Array{T,N}) where {T,N} = constant(x)
 
 # Skip recursing initialization calls - recursing turns out to take a very, very long time.
 Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_normal), args...) = f(args...)

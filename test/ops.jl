@@ -44,3 +44,38 @@ end
     f = nGraph.compile(backend, softmax, x)
     @test isapprox(z, read(f()))
 end
+
+@testset "OneHot" begin
+    # First - just test the functionality of "onehot" itself
+    @test nGraph.splicein((1, 2, 3), 10, 1) == (10, 1, 2, 3)
+    @test nGraph.splicein((1, 2, 3), 10, 2) == (1, 10, 2, 3)
+    @test nGraph.splicein((1, 2, 3), 10, 3) == (1, 2, 10, 3)
+    @test nGraph.splicein((1, 2, 3), 10, 4) == (1, 2, 3, 10)
+
+    onehot_vector = [1, 2, 2]
+    @test nGraph.onehot(onehot_vector, 4, 1) == [
+        1 0 0;
+        0 1 1;
+        0 0 0;
+        0 0 0
+    ]
+    @test nGraph.onehot(onehot_vector, 4, 2) == [
+        1 0 0 0;
+        0 1 0 0;
+        0 1 0 0;
+    ]
+
+    # Need to test the 3 dimensional case ...
+    onehot_matrix = [
+        1 2 3
+        1 1 1
+        2 3 2
+    ]
+
+    # Extend along the last axis
+    expected_result = nGraph.onehot(onehot_matrix, 4, 3)
+
+    backend = nGraph.Backend("CPU")
+    f = nGraph.compile(backend, x -> nGraph.onehot(x, 4, 3), onehot_matrix)
+    display(read(f()))
+end

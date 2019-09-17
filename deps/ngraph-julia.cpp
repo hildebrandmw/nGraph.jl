@@ -696,6 +696,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
+    mod.method("op_onehot", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::Shape& shape,
+        size_t one_hot_axis)
+    {
+        auto a = std::make_shared<ngraph::op::OneHot>(arg, shape, one_hot_axis);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_parameter", [](
         const ngraph::element::Type &element_type,
         const ngraph::Shape &shape)
