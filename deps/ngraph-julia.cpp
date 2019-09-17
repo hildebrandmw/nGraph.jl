@@ -522,6 +522,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return op_constant<int32_t>(type, shape, jl_values);
     });
 
+    mod.method("op_convert", [](
+        const std::shared_ptr<ngraph::Node>& arg,
+        const ngraph::element::Type& element_type)
+    {
+        auto a = std::make_shared<ngraph::op::Convert>(arg, element_type);
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
+    });
+
     mod.method("op_convolution", [](
         const std::shared_ptr<ngraph::Node>& data_batch,
         const std::shared_ptr<ngraph::Node>& filters,

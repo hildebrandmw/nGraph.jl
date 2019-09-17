@@ -6,7 +6,12 @@
 expand(N, i::Tuple) = i
 expand(N, i::Integer) = ntuple(_ -> i, N)
 
-function expand(a::Node{T,M}, b::Node{T,N}) where {T,M,N}
+function expand(a::Node{T1}, b::Node{T2}) where {T1,T2}
+    # Promote types if needed
+    T3 = promote_type(T1, T2)
+    a = convert_eltype(T3, a)
+    b = convert_eltype(T3, b)
+
     # Get the common axes for this object
     shape = map(last, Base.Broadcast.combine_axes(a, b))
 
@@ -102,7 +107,6 @@ function Base.broadcast(
     return Node{T,N}(Lib.op_broadcast(getpointer(a), final_shape, axis_set))
 end
 
-
 #####
 ##### Concat
 #####
@@ -122,6 +126,13 @@ Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
 constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
 constant(x::AbstractArray{T,N}) where {T,N} =
     Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
+
+#####
+##### Convert
+#####
+
+convert_eltype(::Type{T}, x::Node{T}) where {T} = x
+convert_eltype(::Type{T}, x::Node) where {T} = Node(Lib.op_convert(getpointer(x), Element(T)))
 
 #####
 ##### Convolution
