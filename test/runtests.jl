@@ -1,6 +1,6 @@
 using nGraph
 using Test
-using Random
+using Random, Distributions
 using Flux, BenchmarkTools, Zygote
 
 include("types.jl")

@@ -386,7 +386,9 @@ function Base.size(t::Tensor)
 end
 
 function Base.write(t::Tensor, A::Array{T,N}) where {T,N}
-    @assert eltype(t) == T
+    @assert eltype(t) == eltype(A)
+    @assert size(t) == size(A)
+
     GC.@preserve A Lib.tensor_write(
         getpointer(t), 
         Ptr{Cvoid}(pointer(A)), 

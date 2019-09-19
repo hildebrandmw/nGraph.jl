@@ -21,7 +21,7 @@ function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
 end
 
 # Again, getting around a Cassette issue
-_dense_impl(d::Flux.Dense, x::Node) = _getsigma(d).(d.W * x .+ d.b)
+_dense_impl(d::Flux.Dense, x::Node) = (d.σ).(d.W * x .+ d.b)
 
 # TODO: ngraph makes the dictinction between training and inference. For now, we will
 # assume training, but eventually I can add a parameter to SnoopCtx that will determine
@@ -171,6 +171,7 @@ function compile(
 
     println("Found $(length(params)) params")
 
+    # Pack data gathered by the Cassette run into a NamedTuple.
     arg_tuple = (
         inputs = inputs,
         outputs = outputs,
@@ -217,24 +218,18 @@ struct FluxExecutable{B,T,M,N}
     secondary::Vector{Tensor}
 end
 
-recompile(fex::FluxExecutable) = FluxExecutable(
-    recompile(fex.ex),
-    fex.optimizer,
-    fex.inputs,
-    fex.outputs,
-    fex.secondary,
-)
-
-_splat_inputs(fex::FluxExecutable) = Iterators.flatten((fex.inputs, getinputs(fex.optimizer)))
-_splat_outputs(fex::FluxExecutable) = Iterators.flatten((fex.outputs, fex.secondary, getoutputs(fex.optimizer)))
+splat_inputs(fex::FluxExecutable) = Iterators.flatten((fex.inputs, getinputs(fex.optimizer)))
+splat_outputs(fex::FluxExecutable) = Iterators.flatten((fex.outputs, fex.secondary, getoutputs(fex.optimizer)))
 
 function (ex::FluxExecutable)()
-    inputs = Any[getpointer(i) for i in _splat_inputs(ex)]
-    outputs = Any[getpointer(o) for o in _splat_outputs(ex)]
+    inputs = Any[getpointer(i) for i in splat_inputs(ex)]
+    outputs = Any[getpointer(o) for o in splat_outputs(ex)]
 
-    # Since we're passing wrapped type to C++, we have to cast them to Any's
+    # Since we're passing wrapped type to C++, we have to cast them to Any's which is 
+    # kind of gross - but w/e
     ex.ex(inputs, outputs)
 
+    # Perform any updates required by the optimizer.
     update!(ex.optimizer)
     return untuple(ex.outputs)
 end

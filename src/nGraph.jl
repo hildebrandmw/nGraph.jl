@@ -1,6 +1,8 @@
 module nGraph
 
 using Flux, Cassette
+using Random
+using Distributions
 import ProgressMeter
 import JSON
 
@@ -46,12 +48,11 @@ include("ops.jl")
 include("compile.jl")
 
 include("flux.jl")
-include("layers.jl")
 include("gpu.jl")
 #include("models/inception_v4.jl")
 include("models/resnet.jl")
 include("models/test.jl")
-include("onnx.jl")
+include("embed_test.jl")
 
 #####
 ##### Util Functions
