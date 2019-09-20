@@ -66,6 +66,8 @@ function test_embedding()
 
     f = function(x)
         a = reshape(embedding(x, embedding_param), :)
+        # Mark the embedding parameter as an inplace update node.
+        nGraph.__inplace(embedding_param)
         b = d1(a)
         c = d2(b)
         return softmax(c)

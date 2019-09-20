@@ -10,6 +10,11 @@ export embedding
 
 using Dates
 
+# Turn on CPU code generation by default.
+function __init__()
+    enable_codegen()
+end
+
 # function embedding(indices::Matrix, weights::Array) 
 #     x = similar(weights, (size(weights, 1), size(indices)...))
 #     @views for i in CartesianIndices(indices)
@@ -47,7 +52,7 @@ include("types.jl")
 include("ops.jl")
 include("compile.jl")
 
-include("flux.jl")
+include("flux/flux.jl")
 include("gpu.jl")
 #include("models/inception_v4.jl")
 include("models/resnet.jl")
@@ -63,7 +68,7 @@ embedding(indices::Vector, weights::Matrix) = view(weights, :, indices)
 splicein(i::CartesianIndex, v, at) = CartesianIndex(splicein(Tuple(i), v, at))
 splicein(i::Tuple, v, at) = (i[1:at-1]..., v, i[at:end]...)
 
-#### Testing Onehot
+### Testing Onehot
 function onehot(input, max_index, onehot_index)
     # Create the output size from `max_index` and `onehot_index`
     sz = size(input) 
