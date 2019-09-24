@@ -335,6 +335,8 @@ end
 #####
 
 parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
+parameter(::Type{T}, dims...) where {T} = parameter(T, convert.(Int, dims))
+parameter(::Type{T}, dims::NTuple{N,Int}) where {T,N} = Node{T,N}(Lib.op_parameter(Element(T), Shape(dims)))
 parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Shape(())))
 parameter(x::Node) = x
 

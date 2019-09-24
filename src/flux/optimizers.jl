@@ -163,7 +163,12 @@ function create(sgd::SGD, nt::NamedTuple)
             bn = transpose(bn)
         end
 
-        return n + bn
+        # TODO: Make this embedding specific instead of just inplace_nodes.
+        if haskey(inplace_nodes, n)
+            return bn
+        else
+            return n + bn
+        end
     end
 
     # Create tensors for the parameters and gradients

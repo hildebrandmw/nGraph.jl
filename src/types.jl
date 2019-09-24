@@ -202,7 +202,6 @@ Base.IndexStyle(::Node) = Base.IndexLinear()
 Base.axes(n::Node) = map(Base.OneTo, size(n))
 Base.ndims(n::Node{T,N}) where {T,N} = N
 
-
 ### Untyped Node Descriptor for just manipulating nodes
 struct NodeDescriptor
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node,:St10shared_ptrIiE}
@@ -213,16 +212,15 @@ Node(N::NodeDescriptor) = Node(getpointer(N))
 
 Base.show(io::IO, n::NodeDescriptor) = print(io, name(n))
 
-rawptr(n::NodeDescriptor) = getpointer(n)[]
-Base.:(==)(n::NodeDescriptor, m::NodeDescriptor) = rawptr(n) == rawptr(m)
-Base.hash(n::NodeDescriptor, h::UInt = UInt(0x4029388)) = hash(rawptr(n), h)
-
-
 ### Operations on Node and NodeDescriptor
 # Forwards
 const NodeLike = Union{Node, NodeDescriptor}
 name(N::NodeLike) = Lib.get_name(getpointer(N))
 description(N::NodeLike) = Lib.description(getpointer(N))
+
+rawptr(n::NodeLike) = getpointer(n)[]
+Base.:(==)(n::N, m::N) where {N <: NodeLike} = rawptr(n) == rawptr(m)
+Base.hash(n::NodeLike, h::UInt = UInt(0x4029388)) = hash(rawptr(n), h)
 
 # Output sizes etc. are dealt with in the node's type signature.
 # Here, we deal with inputs
@@ -426,7 +424,8 @@ backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, getp
 const ParameterVector = Union{Lib.ParameterVectorAllocated, Lib.ParameterVectorRef}
 wraptype(::ParameterVector) = IsPointer()
 
-function ParameterVector(args::Node...)
+ParameterVector(args...) = ParameterVector(args)
+function ParameterVector(args::Union{Tuple,Vector})
     p = Lib.ParameterVector()
     for arg in args
         Lib.push!(p, getpointer(arg))
@@ -437,7 +436,6 @@ end
 Base.length(P::ParameterVector) = Lib._length(P)
 Base.getindex(P::ParameterVector, i) = Node(Lib._getindex(P, convert(Int64, i-1)))
 Base.iterate(P, s = 1) = (s > length(P)) ? nothing : (P[s], s+1)
-
 
 #####
 ##### NodeWrapper
