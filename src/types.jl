@@ -2,13 +2,14 @@
 struct IsPointer end
 
 # Trait if type has a field that is a pointer to a CxxWrap pointer
-struct HasPointer end
+struct HasPointer{Field} end
+HasPointer() = HasPointer{:ptr}()
 
 wraptype(x) = error("No wrap type defined for $(typeof(x))")
 
 getpointer(x) = _ptr(x, wraptype(x))
 _ptr(x, ::IsPointer) = x
-_ptr(x, ::HasPointer) = x.ptr
+_ptr(x, ::HasPointer{Field}) where {Field} = getfield(x, Field)
 
 # This is kind of a gross way of mapping Julia types to ngraph types.
 # TODO: Think of a better way of doing this.
@@ -333,6 +334,7 @@ mutable struct Tensor
         return new(pointer, backend, _ispersistent(dispatch))
     end
 end
+rawptr(T::Tensor) = getpointer(T)[]
 is_persistent(x::Tensor) = x.ispersistent
 
 Node(x::Tensor) = Node(Lib.op_parameter(
@@ -524,7 +526,15 @@ make_persistent(T::TensorDescriptor) = Lib.make_persistent(getpointer(T))
 make_volatile(T::TensorDescriptor) = Lib.make_volatile(getpointer(T))
 is_persistent(T::TensorDescriptor) = Lib.is_persistent(getpointer(T))
 Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(getpointer(T)))
+function Base.size(T::TensorDescriptor)
+    shape = Lib.get_shape(getpointer(T))
+    return ntuple(i -> shape[i], length(shape))
+end
+
+Base.eltype(T::TensorDescriptor) = back(Lib.get_element_type(getpointer(T)))
 name(T::TensorDescriptor) = Lib.get_name(getpointer(T))
+Tensor(backend, t::TensorDescriptor) = Tensor(eltype(t), nothing, backend, size(t)...)
+PersistentTensor(backend, t::TensorDescriptor) = Tensor(eltype(t), Persistent(), backend, size(t)...)
 
 # Set pool offsets back to zero
 reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(getpointer(T), convert(UInt, 0))

@@ -98,6 +98,8 @@ instantiate(::SGD, backend, args...) = SGDState(backend, args...)
 mutable struct SGDState
     inputs::Vector{Tensor}
     outputs::Vector{Tensor}
+    input_descriptors::Vector{TensorDescriptor}
+    output_descriptors::Vector{TensorDescriptor}
 end
 
 function SGDState(
@@ -115,12 +117,19 @@ function SGDState(
         write(t, i)
     end
 
-    #update_tensors = totensor.(Ref(backend), update_nodes, Ref(isremote))
+    # println("Enumerating inplace nodes")
+    # for n in keys(inplace_nodes)
+    #     println(name(n))
+    # end
+    # println()
+    # println("Enumerating Param Nodes")
+
     update_tensors = map(zip(update_nodes, param_nodes, param_tensors)) do x
         # Unpack argument
         node = x[1]
         param = x[2]
         param_tensor = x[3]
+        # println(name(param))
 
         # If this is an inplace node - copy over the parameter tensor.
         if haskey(inplace_nodes, param)
@@ -139,6 +148,8 @@ function SGDState(
     return SGDState(
         param_tensors,
         update_tensors,
+        first.(outputs.(param_nodes)),
+        first.(outputs.(update_nodes)),
     )
 end
 

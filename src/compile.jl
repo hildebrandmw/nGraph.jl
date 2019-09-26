@@ -21,7 +21,6 @@ mutable struct Executable{T}
         #
         # This avoids needing to clean it up later.
         Lib.remove_compiled_function(getpointer(ex.backend), getpointer(ex))
-
         return ex
     end
 end

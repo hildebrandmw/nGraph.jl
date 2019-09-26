@@ -215,7 +215,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("_sizeof", &ngraph::descriptor::Tensor::size)
         .method("get_name", &ngraph::descriptor::Tensor::get_name)
         .method("set_pool_offset", &ngraph::descriptor::Tensor::set_pool_offset)
-        .method("get_pool_offset", &ngraph::descriptor::Tensor::get_pool_offset);
+        .method("get_pool_offset", &ngraph::descriptor::Tensor::get_pool_offset)
+        .method("get_shape", &ngraph::descriptor::Tensor::get_shape)
+        .method("get_element_type", &ngraph::descriptor::Tensor::get_element_type);
 
     ///// runtime::Tensor
     mod.add_type<ngraph::runtime::Tensor>("RuntimeTensor")
