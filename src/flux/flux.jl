@@ -112,7 +112,7 @@ Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_uniform), args...) = f(arg
 #####
 
 """
-    compile(backend, f, args..; optimizer = Inference()) -> Executable
+    compile(backend, f, args..; optimizer = Inference) -> Executable
 
 Trace and compile a Flux model `f` with `args`.
 """
@@ -120,20 +120,66 @@ function compile(
         backend::Backend,
         f,
         args...;
-        optimizer = Inference(),
+        optimizer = Inference,
         # if !isnothing, should be a callback that returns tensor descriptors that should
         # be assigned into remote memory
-        isremote = nothing,
+        mutator = identity,
         kw...
     )
 
+    # Build the nGraph computation graph
+    trace = snoop(f, args...)
+
+    # build the optimizer and get the implicit input and output parameters
+    opt, opt_inputs, opt_outputs = apply!(mutator, backend, optimizer, trace)
+
+    # pass the trace as well as the optimizer arguments to create the executable.
+    return make(backend, trace, opt, opt_inputs, opt_outputs, mutator; kw...)
+end
+
+"""
+Traced parameters from a compiled function: `f(args...)`.
+
+* `inputs`: The nodes that are explicitly used as an input to `f`. Corresponds to
+    `args...` in the signature of `f`.
+* `outputs`: The nodes that represent the results of `f(args...)`.
+* `implicit_outputs::Vector{Node}`: Outputs that were implicitly created during tracing -
+    usually the result of BatchNorms being wierd.
+* `parameters::Vector{Node}`: Vector of implicit parameters to the function. One is created
+    for each `TrackedArray` that is converted to a `Node` during the traced execution of `f`.
+* `data::Vector{Array}`: The array data that makes up each `parameter` node. These items are
+    index related to the `parameters` field - so, for example, the array at index `2`
+    corresponds to the parameter at index `2`.
+* `args::Vector`: The original arguments to the function.
+* `inplace::IdDict{Node,Nothing}`: Nodes that have been annotated as `inplace`. Kind of an
+    awkward interface - essentially an `IdSet`.
+* `_id::IdDict{Any,Node}`: The `IdDict` corresponding `TrackedArrays` to `Nodes`.
+"""
+struct Trace
+    inputs::Vector{Node}
+    outputs::Vector{Node}
+    implicit_outputs::Vector{Node}
+    parameters::Vector{Node}
+    data::Vector
+    args::Vector
+    inplace::IdDict{Node,Nothing}
+    _id::IdDict{Any,Node}
+end
+
+# Step 1 of compilation - trace the provided function with the provided arguments to
+# construct an nGraph graph - apply the requested optimizer to finish graph construction.
+#
+# Returns an argument named tuple that is given to the next stage of compilation.
+function snoop(f, args...)
+        #optimizer = Inference,
+        #isremote = nothing
     ctx = SnoopCtx(metadata = SnoopMeta())
 
     # Extract the parameter from all the inputs
-    inputs = Node.(args)
+    inputs = collect(Node.(args))
 
     # Perform traced execution on the function.
-    outputs = astuple(Cassette.overdub(ctx, f, inputs...))
+    outputs = collect(astuple(Cassette.overdub(ctx, f, inputs...)))
     @assert all(x -> isa(x, Node), outputs)
 
     # Get all of the implicit parameters that were instantiated during traced execution.
@@ -142,52 +188,41 @@ function compile(
 
     println("Found $(length(params)) params")
 
-    # Pack data gathered by the Cassette run into a NamedTuple.
-    arg_tuple = (
-        inputs = inputs,
-        outputs = outputs,
-        params = params,
-        data = data,
-        inplace = ctx.metadata.inplace_nodes,
-        _id = ctx.metadata.parameters,
+    return Trace(
+        inputs,
+        outputs,
+        ctx.metadata.secondary,
+        params,
+        data,
+        collect(args),
+        ctx.metadata.inplace_nodes,
+        ctx.metadata.parameters,
     )
-    opt_args, opt_inputs, opt_outputs = create(optimizer, arg_tuple)
+end
 
-    # Compile the executable
-    secondary_outputs = ctx.metadata.secondary
+function make(backend::Backend, trace, opt, opt_inputs, opt_outputs, mutator; kw...)
+    # Create an nGraph Executable
     ex = compile(
         backend,
-        ParameterVector(inputs..., opt_inputs...),
-        NodeVector(outputs..., secondary_outputs..., opt_outputs...);
+        ParameterVector(trace.inputs..., opt_inputs...),
+        NodeVector(trace.outputs..., trace.implicit_outputs..., opt_outputs...);
         kw...
     )
 
-    # Instantiate the optimizer struct AFTER compilation to provide more memory for
-    # profiling
-    opt = instantiate(optimizer, backend, isremote, opt_args...)
-
-    # Create tensors for the outputs
-    input_tensors = totensor.(Ref(backend), inputs, Ref(isremote))
-    for (t,i) in zip(input_tensors, args)
-        write(t, i)
-    end
-
-    output_tensors = totensor.(Ref(backend), outputs, Ref(isremote))
-    secondary_tensors = totensor.(Ref(backend), secondary_outputs, Ref(isremote))
-    length(secondary_tensors) == 0 && (secondary_tensors = Tensor[])
+    # Create TensorViews for each of the inputs and outputs
+    input_tensors = Tuple(TensorView.(Ref(backend), mutator.(trace.args)))
+    output_tensors = Tuple(TensorView.(Ref(backend), mutator.(trace.outputs)))
+    secondary_tensors = TensorView.(Ref(backend), mutator.(trace.implicit_outputs))
 
     return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
 end
 
-totensor(backend, A, ::Nothing) = Tensor(backend, A)
-totensor(backend, A, f) = f(A) ? PersistentTensor(backend, A) : Tensor(backend, A)
-
 struct FluxExecutable{B,T,M,N}
     ex::Executable{B}
     optimizer::T
-    inputs::NTuple{M,Tensor}
-    outputs::NTuple{N,Tensor}
-    secondary::Vector{Tensor}
+    inputs::NTuple{M,TensorView}
+    outputs::NTuple{N,TensorView}
+    secondary::Vector{TensorView}
 end
 
 splat_inputs(fex::FluxExecutable) = Iterators.flatten((fex.inputs, getinputs(fex.optimizer)))

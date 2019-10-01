@@ -39,12 +39,9 @@ Base.broadcasted(f, x::Number, y::Node{T}) where {T} = _forward(f)(expand(Node{T
 
 Base.convert(::Type{Node{T,0}}, x::S) where {T,S <: Number} = Node{T,0}(convert(T, x))
 
-# Special case element wise copy - this gets around an issue in Metalhead's ResNet
+# Special case element-wise copy - this gets around an issue in Metalhead's ResNet
 # implementation.
 Base.broadcasted(::typeof(copy), x::Node) = x
-
-# TODO: Add this
-#(::Flux.BatchNorm)(x::Node) = x
 
 #####
 ##### Add
@@ -324,7 +321,7 @@ function onehot(x::Node{T,N}, max_index, onehot_index) where {T,N}
     output_sz = collect(splicein(sz, max_index, onehot_index))
 
     return Node{T,N+1}(Lib.op_onehot(
-        getpointer(x), 
+        getpointer(x .- one(T)), 
         Shape(output_sz), 
         convert(UInt, N + 1 - onehot_index)
     ))

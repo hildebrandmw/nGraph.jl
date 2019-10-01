@@ -38,7 +38,7 @@ function back(x::Element)
         "float"     => Float32,
         "double"    => Float64,
         "int32_t"   => Int32,
-        "int64_t"   => Int64, 
+        "int64_t"   => Int64,
     ])
     return d[str]
 end
@@ -90,7 +90,7 @@ wraptype(::Strides) = IsPointer()
 Strides(x::Vector) = Lib.Strides(x)
 Strides(x::Tuple) = Strides(collect(x))
 
-##### 
+#####
 ##### Nodes
 #####
 
@@ -142,7 +142,7 @@ struct CPU <: AbstractBackendType end
 struct GPU <: AbstractBackendType end
 
 # Can rely on constant propagation to make this type stable in many circumnstances.
-function backend_type(s::String) 
+function backend_type(s::String)
     if s == "CPU"
         return CPU
     elseif s == "GPU"
@@ -174,7 +174,7 @@ wraptype(::Node) = HasPointer()
 
 function Node(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Node})
     # Get the element type and shape from the node.
-    N = length(Lib.get_output_shape(ptr, zero(UInt64)))    
+    N = length(Lib.get_output_shape(ptr, zero(UInt64)))
     T = back(Lib.get_output_element_type(ptr, zero(UInt64)))
     return Node{T,N}(ptr)
 end
@@ -188,7 +188,7 @@ Node{T}(x::T) where {T} = constant(x)
 
 Node(x::Node) = x
 Base.display(n::Node) = show(stdout, n)
-Base.show(io::IO, n::Node{T,N}) where {T,N} = 
+Base.show(io::IO, n::Node{T,N}) where {T,N} =
     println(io, "Node{$T, $N} with size: $(size(n))")
 
 function Base.size(n::Node{T,N}) where {T,N}
@@ -226,7 +226,7 @@ Base.hash(n::NodeLike, h::UInt = UInt(0x4029388)) = hash(rawptr(n), h)
 # Output sizes etc. are dealt with in the node's type signature.
 # Here, we deal with inputs
 get_input_size(N::NodeLike) = Lib.get_input_size(getpointer(N))
-get_input_element_type(N::NodeLike, i) = 
+get_input_element_type(N::NodeLike, i) =
     back(Lib.get_input_element_type(getpointer(N), convert(UInt, i-1)))
 function get_input_shape(N::NodeLike, i)
     shape = Lib.get_input_shape(getpointer(N), convert(UInt, i-1))
@@ -238,7 +238,7 @@ get_input(N::T, i) where {T <: NodeLike} = T(Lib.get_input_node(getpointer(N), c
 get_inputs(N::NodeLike) = [get_input(N,i) for i in 1:Lib.get_input_size(getpointer(N))]
 
 get_output_size(N::NodeLike) = Lib.get_output_size(getpointer(N))
-get_output_element_type(N::NodeLike, i) = 
+get_output_element_type(N::NodeLike, i) =
     back(Lib.get_output_element_type(getpointer(N), convert(UInt, i-1)))
 
 function get_output_shape(N::NodeLike, i)
@@ -247,7 +247,7 @@ function get_output_shape(N::NodeLike, i)
 end
 
 get_output(N::T, i) where {T <: NodeLike} = T.(Lib.get_output_nodes(getpointer(N), convert(Int, i-1)))
-get_outputs(N::NodeLike) = 
+get_outputs(N::NodeLike) =
     [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))] |>
     Iterators.flatten |>
     unique
@@ -259,7 +259,7 @@ get_control_deps(N::T) where {T <: NodeLike} = T.(Lib.get_control_deps(getpointe
 
 Construct a copy of `N` with `args` as input arguments.
 """
-Base.copy(node::T, args) where {T <: NodeLike} = 
+Base.copy(node::T, args) where {T <: NodeLike} =
     T(Lib.copy_with_new_args(getpointer(node), convert(NodeVector, args)))
 
 Base.convert(::Type{NodeVector}, v::Vector{Node}) = NodeVector(v)
@@ -267,11 +267,11 @@ Base.convert(::Type{NodeVector}, v::Vector{Node}) = NodeVector(v)
 
 # Get TensorDescriptors
 outputs(N::NodeLike) = [output(N, i) for i in 1:get_output_size(N)]
-output(N::NodeLike, i) = 
+output(N::NodeLike, i) =
     TensorDescriptor(Lib.get_output_tensor_ptr(getpointer(N), convert(Int, i-1)))
 
 inputs(N::NodeLike) = [input(N, i) for i in 1:get_input_size(N)]
-input(N::NodeLike, i) = 
+input(N::NodeLike, i) =
     TensorDescriptor(Lib.get_input_tensor_ptr(getpointer(N), convert(Int, i-1)))
 
 #copy_with_new_args(n::T, args) where {T <: Node} = T(Lib.copy_with_new_args(getpointer(n), args))
@@ -280,16 +280,16 @@ input(N::NodeLike, i) =
 is_mkldnn(n::NodeLike) = Lib.node_is_mkldnn_op(getpointer(n))
 set_mkldnn(n::NodeLike) = Lib.node_set_mkldnn_op(getpointer(n))
 
-splice(source::NodeLike, source_output, dest::NodeLike, dest_input, x::NodeLike) = 
+splice(source::NodeLike, source_output, dest::NodeLike, dest_input, x::NodeLike) =
     Lib.special_insert_new_node_between(
-        getpointer(source), 
+        getpointer(source),
         convert(UInt, source_output - 1),
-        getpointer(dest), 
+        getpointer(dest),
         convert(UInt, dest_input - 1),
         getpointer(x)
    )
 
-input_needs_conversion(node::NodeLike, i) = 
+input_needs_conversion(node::NodeLike, i) =
     Lib.input_needs_conversion(getpointer(node), convert(UInt, i-1))
 
 get_sync(node::NodeLike) = Lib.get_sync(getpointer(node))
@@ -304,109 +304,61 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 ##### Tensor
 #####
 
-struct Persistent end
+revdims(::Val{N}) where {N} = ntuple(i -> N + 1 - i, N)
+revdims(::AbstractArray{T,N}) where {T,N} = revdims(Val{N}())
 
-_tensor(backend::Backend{CPU}, ::Nothing, args...) =
-    Lib.create_tensor(getpointer(backend), args...)
-
-_tensor(backend::Backend{GPU}, ::Nothing, args...) =
-    Lib.create_tensor(getpointer(backend), args...)
-
-_tensor(backend::Backend{CPU}, ::Persistent, args...) = 
-    Lib.create_cpu_persistent_tensor(getpointer(backend), args...)
-
-_persistent_tensor(backend::Backend{GPU}, ::Persistent, args...) = 
-    Lib.create_gpu_persistent_tensor(getpointer(backend), args...)
-
-_ispersistent(::Nothing) = false
-_ispersistent(::Persistent) = true
-
-mutable struct Tensor
+struct TensorView
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
     backend::Backend
-    ispersistent::Bool
+    # Keep track of the base array to avoid GC
+    base::Array
 
-    function Tensor(::Type{T}, dispatch::U, backend::Backend, inds::Vararg{Int,N}) where {T,U,N}
-        shape = Shape(inds)
-        element = Element(T)
-        pointer = _tensor(backend, dispatch, element, shape)
+    function TensorView(backend::Backend, v::Array{T,N}) where {T,N}
+        vptr = Base.unsafe_convert(Ptr{Cvoid}, pointer(v))
+        ptr = Lib.create_tensor(
+            getpointer(backend), 
+            Element(T), 
+            Shape(size(v)),
+            vptr
+        )
 
-        return new(pointer, backend, _ispersistent(dispatch))
+        return new(ptr, backend, v)
     end
 end
-rawptr(T::Tensor) = getpointer(T)[]
-is_persistent(x::Tensor) = x.ispersistent
+rawptr(T::TensorView) = getpointer(T)[]
 
-Node(x::Tensor) = Node(Lib.op_parameter(
-    Lib.get_element_type(getpointer(x)), 
+function Base.display(TV::TensorView)
+    printstyled("Tensor View\n"; color = :yellow)
+    display(TV.base)
+end
+
+Node(x::TensorView) = Node(Lib.op_parameter(
+    Lib.get_element_type(getpointer(x)),
     Lib.get_shape(getpointer(x)),
 ))
 
-wraptype(::Tensor) = HasPointer()
+wraptype(::TensorView) = HasPointer()
 
-Base.eltype(T::Tensor) = back(Lib.get_element_type(getpointer(T)))
-Base.sizeof(t::Tensor) = convert(Int, Lib.get_size_in_bytes(getpointer(t)))
+Base.eltype(T::TensorView) = back(Lib.get_element_type(getpointer(T)))
+Base.sizeof(t::TensorView) = convert(Int, Lib.get_size_in_bytes(getpointer(t)))
 
-Tensor(backend, x::Tensor) = x
-Tensor(backend, x::T) where {T} = Tensor(T, nothing, backend)
-Tensor(backend, v::Node{T}) where {T} = Tensor(T, nothing, backend, size(v)...)
-function Tensor(backend, v::AbstractArray{T,N}) where {T,N} 
-    t = Tensor(T, nothing, backend, size(v)...)
-    write(t, v)
-    return t
+TensorView(backend, x::TensorView) = x
+function TensorView(backend, x::T) where {T} 
+    A = Array{T,0}(undef)
+    A[] = x
+    return TensorView(backend, A)
 end
 
-function PersistentTensor(backend, v::AbstractArray{T,N}) where {T,N}
-    @info "Making a persistent tensor!"
-    t = Tensor(T, Persistent(), backend, size(v)...)
-    write(t, v)
-    return t
+# If we're trying to create a tensor view from a node - create an undefined array and return
+# a view of that.
+function TensorView(backend::Backend, v::Node{T,N}) where {T,N}
+    A = Array{T}(undef, size(v))
+    return TensorView(backend, A)
 end
 
-# Swap out the inner pointer for one allocated in persistent memory
-function make_persistent!(t::Tensor)
-    @assert !t.ispersistent
-    inner = Tensor(eltype(t), Persistent(), t.backend, size(t)...)
-    write(inner, read(t)) 
-    t.ptr = inner.ptr
-    return nothing
-end
-
-function make_volatile!(t::Tensor)
-    @assert t.ispersistent
-    inner = Tensor(eltype(t), nothing, t.backend, size(t)...)
-    write(inner, read(t)) 
-    t.ptr = inner.ptr
-    return nothing
-end
-
-function Base.size(t::Tensor)
+function Base.size(t::TensorView)
     shape = Shape(getpointer(t))
     return ntuple(i -> shape[i], length(shape))
-end
-
-function Base.write(t::Tensor, A::Array{T,N}) where {T,N}
-    @assert eltype(t) == eltype(A)
-    @assert size(t) == size(A)
-
-    GC.@preserve A Lib.tensor_write(
-        getpointer(t), 
-        Ptr{Cvoid}(pointer(A)), 
-        convert(UInt, sizeof(A))
-    )
-end
-# no-op trying to write nodes to tensors because nodes don't actually contain any data
-Base.write(t::Tensor, ::Node) = nothing
-
-Base.read(t::Tensor) = _read(t, eltype(t), size(t))
-function _read(t::Tensor, ::Type{T}, dims::NTuple{N, Integer}) where {T,N}
-    A = Array{T,N}(undef, dims)
-    Lib.tensor_read(
-        getpointer(t),
-        Ptr{Cvoid}(pointer(A)),
-        convert(UInt, sizeof(t)),
-    )
-    return A
 end
 
 #####
@@ -462,7 +414,7 @@ mutable struct NFunction
     callback::Any
 
     function NFunction(nodes::Lib.NodeVectorAllocated, params::Lib.ParameterVectorAllocated)
-        ptr = Lib.make_function(nodes, params) 
+        ptr = Lib.make_function(nodes, params)
         ops = Lib.get_ordered_ops(ptr)
         return new(ptr, ops, nothing)
     end
@@ -495,7 +447,7 @@ Base.iterate(f::NFunction, s) = (s <= length(f)) ? (f[s], s+1) : nothing
 
 # Allow reverse iterations
 Base.reverse(f::NFunction) = Iterators.reverse(f)
-Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) = 
+Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) =
     (s == 0) ? nothing : (f.itr[s], s-1)
 
 Base.copy(f::NFunction) = NFunction(Lib.clone_function(getpointer(f)))
@@ -516,7 +468,7 @@ rawptr(a::TensorDescriptor) = getpointer(a)[]
 Base.:(==)(a::TensorDescriptor, b::TensorDescriptor) = rawptr(a) == rawptr(b)
 Base.hash(x::TensorDescriptor, h::UInt = UInt(0x10984)) = hash(rawptr(x), h)
 
-function Base.show(io::IO, T::TensorDescriptor) 
+function Base.show(io::IO, T::TensorDescriptor)
     println(io, "Tensor Descriptor")
     println(io, "    Name: $(name(T))")
     println(io, "    Is Persistent: $(is_persistent(T))")

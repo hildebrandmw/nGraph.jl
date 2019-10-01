@@ -2,26 +2,24 @@
 ##### Optimizers
 #####
 
-create(f::Any, args::NamedTuple) = create(f, args.inputs, args.outputs, args.params, args.data)
-
-# Inference 'Optimizer'
-struct Inference end
-instantiate(::Inference, args...) = InferenceState(args...)
-
-struct InferenceState
-    tensors::Vector{Tensor}
+struct Inference
+    tensors::Vector{TensorView}
 end
 
-InferenceState(backend, x::Any, v::Vector) = InferenceState(Tensor.(Ref(backend), v))
+function apply!(f, backend::Backend, ::Type{Inference}, trace)
+    # Call the higher order `f` on each element of the `data` array
+    tensors = TensorView.(Ref(backend), f.(trace.data))
+    return Inference(tensors), trace.parameters, ()
+end
 
-create(::Inference, inputs, outputs, params, data) = (data,), params, ()
-getinputs(I::InferenceState) = I.tensors
-getoutputs(I::InferenceState) = ()
-update!(I::InferenceState) = nothing
+getinputs(I::Inference) = I.tensors
+getoutputs(I::Inference) = ()
+update!(I::Inference) = nothing
 
 #####
 ##### Just get the Gradients
 #####
+
 struct Gradient
     params::Vector
     gradients::Vector
@@ -90,79 +88,23 @@ end
 #####
 ##### Standard SGD
 #####
+
 struct SGD{T <: Number}
     learning_rate::T
 end
-instantiate(::SGD, backend, args...) = SGDState(backend, args...)
 
 mutable struct SGDState
-    inputs::Vector{Tensor}
-    outputs::Vector{Tensor}
-    input_descriptors::Vector{TensorDescriptor}
-    output_descriptors::Vector{TensorDescriptor}
+    inputs::Vector{TensorView}
+    outputs::Vector{TensorView}
 end
 
-function SGDState(
-        backend::Backend, 
-        isremote, 
-        param_nodes, 
-        param_data::Vector, 
-        update_nodes,
-        update_data::Vector,
-        inplace_nodes
-    )
+function apply!(f, backend::Backend, sgd::SGD, trace)
+    # Unpack `trace` arguments
+    params = trace.parameters
+    inplace_nodes = trace.inplace
 
-    param_tensors = totensor.(Ref(backend), param_nodes, Ref(isremote))
-    for (t, i) in zip(param_tensors, param_data)
-        write(t, i)
-    end
-
-    # println("Enumerating inplace nodes")
-    # for n in keys(inplace_nodes)
-    #     println(name(n))
-    # end
-    # println()
-    # println("Enumerating Param Nodes")
-
-    update_tensors = map(zip(update_nodes, param_nodes, param_tensors)) do x
-        # Unpack argument
-        node = x[1]
-        param = x[2]
-        param_tensor = x[3]
-        # println(name(param))
-
-        # If this is an inplace node - copy over the parameter tensor.
-        if haskey(inplace_nodes, param)
-            @info "Creating an Inplace Node"
-            @assert size(node) == size(param) == size(param_tensor)
-            return param_tensor
-        end
-
-        return totensor(backend, node, isremote)
-    end
-
-    for (t, i) in zip(update_tensors, update_data)
-        write(t, i)
-    end
-
-    return SGDState(
-        param_tensors,
-        update_tensors,
-        first.(outputs.(param_nodes)),
-        first.(outputs.(update_nodes)),
-    )
-end
-
-function create(sgd::SGD, nt::NamedTuple)
-    # Unpace argument.
-    inputs = nt.inputs
-    outputs = nt.outputs
-    params = nt.params
-    data = nt.data
-    inplace_nodes = nt.inplace
-
-    # Create a backprop node for each parameter
-    adjoints = make_adjoints(first(outputs), -constant(sgd.learning_rate))
+    # Create backprop nodes for each parameters.
+    adjoints = make_adjoints(first(trace.outputs), -constant(sgd.learning_rate))
 
     backprop_nodes = [backprop_node(adjoints, n) for n in params]
     updates = map(zip(params, backprop_nodes)) do x
@@ -182,16 +124,29 @@ function create(sgd::SGD, nt::NamedTuple)
         end
     end
 
-    # Create tensors for the parameters and gradients
-    param_tensors = data
-    update_tensors = data
+    param_tensors = TensorView.(Ref(backend), f.(trace.data))
+    update_tensors = map(zip(updates, params, param_tensors, trace.data)) do x
+        # Unpack argument
+        node = x[1]
+        param = x[2]
+        param_tensor = x[3]
+        datum = x[4]
 
-    args = (params, param_tensors, updates, update_tensors, inplace_nodes)
-    return (
-        args,
-        params,
-        updates
-    )
+        # If this is an inplace node - copy over the parameter tensor.
+        if haskey(inplace_nodes, param)
+            @info "Creating an Inplace Node"
+            @assert size(node) == size(param) == size(param_tensor)
+            return param_tensor
+        else
+            # Need to make sure that we create a copy of the underlying data to create
+            # a new TensorView - otherwise we'll accidentally alias with an existing
+            # view ... unless that's what we want of course :D
+            return TensorView(backend, f(copy(datum)))
+        end
+    end
+
+    state = SGDState(param_tensors, update_tensors)
+    return state, params, updates
 end
 
 getinputs(S::SGDState) = S.inputs

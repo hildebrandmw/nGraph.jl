@@ -226,23 +226,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_element_type", &ngraph::runtime::Tensor::get_element_type)
         .method("get_name", &ngraph::runtime::Tensor::get_name);
 
-    // Read/write wrappers for tensor
-    mod.method("tensor_write", [](
-        std::shared_ptr<ngraph::runtime::Tensor> tensor,
-        void* p,
-        size_t n)
-    {
-        tensor->write(p, n);
-    });
-
-    mod.method("tensor_read", [](
-        std::shared_ptr<ngraph::runtime::Tensor> tensor,
-        void* p,
-        size_t n)
-    {
-        tensor->read(p, n);
-    });
-
     ///// Node
     mod.add_type<ngraph::Node>("Node")
         .method("get_name", &ngraph::Node::get_name)
@@ -857,9 +840,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.method("create_tensor", [](
         ngraph::runtime::Backend* backend,
         const ngraph::element::Type& element_type,
-        const ngraph::Shape& shape)
+        const ngraph::Shape& shape,
+        void* ptr)
     {
-        return backend->create_tensor(element_type, shape);
+        return backend->create_tensor(element_type, shape, ptr);
     });
 
     /////

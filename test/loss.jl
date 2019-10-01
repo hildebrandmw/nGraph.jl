@@ -8,7 +8,7 @@
     backend = nGraph.Backend()
     f = nGraph.compile(backend, Flux.crossentropy, x, y)
 
-    @test isapprox(z, read(f())[])
+    @test isapprox(z, f().base[])
 end
 
 #####
@@ -83,22 +83,19 @@ function test_embedding()
     F = nGraph.compile(backend, loss, inputs, expected; optimizer = nGraph.SGD(Float32(0.01)))
 
     # Get references to the input tensors in F
-    inputs_view = F.inputs[1]
-    expected_view = F.inputs[2]
+    #inputs_view = F.inputs[1]
+    expected_view = F.inputs[2].base
 
     context_idx = Array{Int32}(undef, context_size)
-    expected_idx = Array{Int32, 0}(undef)
 
     # Create a training loop
     for epoch in 1:80
         total_loss = 0
         for (context, target) in shuffle(trigrams)
-            context_idx .= getindex.(Ref(word_to_idx), context)
-            write(inputs_view, context_idx)
+            inputs .= getindex.(Ref(word_to_idx), context)
+            expected_view[] = word_to_idx[target]
 
-            expected_idx[] = word_to_idx[target]
-            write(expected_view, expected_idx)
-            this_loss = read(F())
+            this_loss = F().base
             total_loss += this_loss[]
         end
         println("Epoch $epoch - Loss: $total_loss")
@@ -109,7 +106,7 @@ function test_embedding()
     # Copy over the parameters from the trained model.
     for (a, b) in zip(nGraph.getinputs(G.optimizer), nGraph.getinputs(F.optimizer))
         @assert size(a) == size(b)
-        write(a, read(b))
+        a .= b
     end
 
     return G, trigrams, word_to_idx
@@ -118,12 +115,12 @@ end
 @testset "Testing Embedding Training" begin
     fex, trigrams, word_to_idx = test_embedding()
 
-    input_view = fex.inputs[1]
+    input_view = fex.inputs[1].base
     ncorrect = 0
     total = length(word_to_idx)
     for (context, target) in trigrams
-        write(input_view, [word_to_idx[i] for i in context])
-        y = last(findmax(read(fex()))) - 1
+        input_view .= [word_to_idx[i] for i in context]
+        y = last(findmax(fex().base)) - 1
         z = word_to_idx[target]
         if y == z
             ncorrect += 1

@@ -15,7 +15,17 @@ end
     x = rand(Float32, 100)
     f = nGraph.compile(backend, x -> reshape(x, 1, :), x)
     Z = f()
-    @test reshape(x, 1, :) == read(Z)
+    @test reshape(x, 1, :) == Z.base
+
+    x = rand(Float32, 2, 2, 2)
+    g = x -> reshape(x, :)
+    f = nGraph.compile(backend, g, x)
+    @test g(x) == f().base
+
+    x = rand(Float32, 3, 2, 1)
+    g = x -> reshape(x, 1, 2, 3)
+    f = nGraph.compile(backend, g, x)
+    @test g(x) == f().base
 
     # More extravagent reshape
     x = rand(Float32, 1, 2, 3, 4, 5, 6) 
@@ -26,7 +36,7 @@ end
     @test size(M) == (6, 5, 4, 3, 2)
     f = nGraph.compile(backend, g, x)
 
-    @test g(x) == read(f())
+    @test g(x) == f().base
 end
 
 @testset "Softmax" begin
@@ -36,13 +46,13 @@ end
     x = rand(Float32, 100)
     z = softmax(x)
     f = nGraph.compile(backend, softmax, x)
-    @test isapprox(z, read(f()))
+    @test isapprox(z, f().base)
 
     # 2D case
     x = rand(Float32, 100, 100) 
     z = softmax(x)
     f = nGraph.compile(backend, softmax, x)
-    @test isapprox(z, read(f()))
+    @test isapprox(z, f().base)
 end
 
 @testset "OneHot" begin
@@ -73,9 +83,11 @@ end
     ]
 
     # Extend along the last axis
-    expected_result = nGraph.onehot(onehot_matrix, 4, 3)
-
     backend = nGraph.Backend("CPU")
+    println("Making Backend")
     f = nGraph.compile(backend, x -> nGraph.onehot(x, 4, 3), onehot_matrix)
-    display(read(f()))
+    println("Making F")
+    @show f()
+    display(f().base)
+    println("Displayed")
 end
