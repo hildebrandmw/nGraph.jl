@@ -139,11 +139,11 @@ function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 
     # Construct the convolution node.
     strides = Strides(expand(N-2, stride))
 
-    expand_pad = expand(N, pad)
-    padding_below = CoordinateDiff(expand_pad[1:div(N, 2)])
-    padding_above = CoordinateDiff(expand_pad[(div(N, 2) + 1):N])
-    dilations = Strides(expand(N-2, dilation))
+    expand_pad = expand(2 * N, pad)
+    padding_below = CoordinateDiff(expand_pad[1:2:length(expand_pad)])
+    padding_above = CoordinateDiff(expand_pad[2:2:length(expand_pad)])
 
+    dilations = Strides(expand(N-2, dilation))
     node = Lib.op_convolution(
         getpointer(x), 
         getpointer(w), 

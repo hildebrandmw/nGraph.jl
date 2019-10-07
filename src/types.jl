@@ -187,6 +187,8 @@ end
 Node{T}(x::T) where {T} = constant(x)
 
 Node(x::Node) = x
+Node{T,N}(x::Node{T,N}) where {T,N} = x
+
 Base.display(n::Node) = show(stdout, n)
 Base.show(io::IO, n::Node{T,N}) where {T,N} =
     println(io, "Node{$T, $N} with size: $(size(n))")
@@ -246,7 +248,9 @@ function get_output_shape(N::NodeLike, i)
     return ntuple(i -> shape[i], length(shape))
 end
 
-get_output(N::T, i) where {T <: NodeLike} = T.(Lib.get_output_nodes(getpointer(N), convert(Int, i-1)))
+function get_output(N::NodeLike, i) where {T <: NodeLike} 
+    return collect(Lib.get_output_nodes(getpointer(N), convert(Int, i-1)))
+end
 get_outputs(N::NodeLike) =
     [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))] |>
     Iterators.flatten |>
