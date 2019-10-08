@@ -153,7 +153,7 @@ function backend_type(s::String)
 end
 
 struct Backend{T <: AbstractBackendType}
-    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10shared_ptrIiE}
+    ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.Backend,:St10unique_ptrIiSt14default_deleteIiEE}
 end
 wraptype(::Backend) = HasPointer()
 
@@ -183,7 +183,6 @@ Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
 function Node{T,N}(x::AbstractArray{T,N}) where {T,N}
     return Node{T,N}(Lib.op_parameter(Element(T), Shape(size(x))))
 end
-
 Node{T}(x::T) where {T} = constant(x)
 
 Node(x::Node) = x
@@ -222,6 +221,7 @@ name(N::NodeLike) = Lib.get_name(getpointer(N))
 description(N::NodeLike) = Lib.description(getpointer(N))
 
 rawptr(n::NodeLike) = getpointer(n)[]
+
 Base.:(==)(n::N, m::N) where {N <: NodeLike} = rawptr(n) == rawptr(m)
 Base.hash(n::NodeLike, h::UInt = UInt(0x4029388)) = hash(rawptr(n), h)
 
@@ -248,9 +248,14 @@ function get_output_shape(N::NodeLike, i)
     return ntuple(i -> shape[i], length(shape))
 end
 
-function get_output(N::NodeLike, i) where {T <: NodeLike} 
-    return collect(Lib.get_output_nodes(getpointer(N), convert(Int, i-1)))
+# Convert things to either all <:Node or NodeDescriptors
+_as(::Type{<:Node}, x) = Node(x)
+_as(::Type{NodeDescriptor}, x) = NodeDescriptor(x)
+
+function get_output(N::T, i) where {T <: NodeLike} 
+    return _as.(T, (Lib.get_output_nodes(getpointer(N), convert(Int, i-1))))
 end
+
 get_outputs(N::NodeLike) =
     [get_output(N, i) for i in 1:Lib.get_output_size(getpointer(N))] |>
     Iterators.flatten |>

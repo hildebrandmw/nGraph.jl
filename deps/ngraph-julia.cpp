@@ -15,7 +15,7 @@
 #include "ngraph/runtime/tensor.hpp"
 #include "ngraph/serializer.hpp"
 
-#include "ngraph/runtime/allocator.hpp"
+//#include "ngraph/runtime/allocator.hpp"
 
 // CPU Related Stuff
 #include "ngraph/runtime/cpu/cpu_backend.hpp"
@@ -23,7 +23,7 @@
 #include "ngraph/runtime/cpu/cpu_helper.hpp"
 
 // CPU ops
-#include "ngraph/runtime/cpu/op/batch_mat_mul_transpose.hpp"
+#include "ngraph/runtime/cpu/op/batch_dot.hpp"
 #include "ngraph/runtime/cpu/op/convert_layout.hpp"
 
 // GPU Related Stuff
@@ -125,7 +125,7 @@ int64_t PerfCounterTranslator::_length()
 std::tuple<std::string, size_t> PerfCounterTranslator::_getindex(int64_t i)
 {
     ngraph::runtime::PerformanceCounter counter = m_counters.at(i);
-    return make_tuple(counter.get_node()->get_name(), counter.microseconds());
+    return make_tuple(counter.name(), counter.microseconds());
 }
 
 /////
@@ -261,8 +261,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                  const std::shared_ptr<ngraph::Node>& node,
                  const int64_t index)
              {
-                 //std::set<ngraph::descriptor::Input*> output_inputs = node->get_output_inputs(index);
-                 auto output_inputs = node->output(index).get_target_inputs();
+                 std::set<ngraph::descriptor::Input*> output_inputs = node->get_output_inputs(index);
+                 //auto output_inputs = node->output(index).get_target_inputs();
                  std::vector<std::shared_ptr<ngraph::Node>> nodes;
                  for (auto input : output_inputs)
                  {
@@ -270,7 +270,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                     //
                     // Find the canonical shared_ptr from the node and use that.
                     auto node_shared_ptr = std::dynamic_pointer_cast<ngraph::Node>(
-                            input.get_node()->shared_from_this()); 
+                            input->get_node()->shared_from_this()); 
 
                     nodes.emplace_back(node_shared_ptr);
                  }
@@ -291,11 +291,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                 const std::shared_ptr<ngraph::Node>& node,
                 const ngraph::NodeVector& args)
     {
+        return node->copy_with_new_args(args);
         // Create an OutputVector from the arguments 
-        ngraph::OutputVector ov = ngraph::OutputVector(args.size());    
-        auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); }; 
-        std::transform(args.begin(), args.end(), ov.begin(), op);
-        return node->copy_with_new_inputs(ov);
+        //ngraph::OutputVector ov = ngraph::OutputVector(args.size());    
+        //auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); }; 
+        //std::transform(args.begin(), args.end(), ov.begin(), op);
+        //return node->copy_with_new_inputs(ov);
     });
 
     // Give me a node, I'll give yah a tensor!
@@ -319,13 +320,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
             int64_t index)
         {
             // Get the set of nodes that use this output
-            //const std::set<ngraph::descriptor::Input*>& users = node->get_output_inputs(index);
-            auto users = node->output(index).get_target_inputs();
+            const std::set<ngraph::descriptor::Input*>& users = node->get_output_inputs(index);
+            //auto users = node->output(index).get_target_inputs();
 
             // Predicate to check if a node is a Result
-            auto predicate = [](ngraph::Input<ngraph::Node> input)
+            auto predicate = [](ngraph::descriptor::Input* input)
             {
-                return input.get_node()->description() == "Result";
+                return input->get_node()->description() == "Result";
             };
             return std::all_of(users.begin(), users.end(), predicate);
         });
@@ -366,7 +367,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("get_name", &ngraph::Function::get_name)
         .method("get_parameters", &ngraph::Function::get_parameters)
         .method("get_temporary_pool_size", &ngraph::Function::get_temporary_pool_size)
-        .method("get_remote_pool_size", &ngraph::Function::get_remote_pool_size)
+        .method("get_remote_pool_size", &ngraph::Function::get_pmem_pool_size)
         .method("set_jl_callback", &ngraph::Function::set_jl_callback)
         .method("clear_jl_callback", &ngraph::Function::clear_jl_callback)
         .method("get_jl_callback", &ngraph::Function::get_jl_callback)
@@ -405,17 +406,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     mod.add_type<ngraph::autodiff::Adjoints>("Adjoints");
     mod.method("make_adjoints", [](const ngraph::NodeVector& y, const ngraph::NodeVector& c)
     {
-        ngraph::OutputVector oy = ngraph::OutputVector(y.size());
-        ngraph::OutputVector oc = ngraph::OutputVector(c.size());
+        return ngraph::autodiff::Adjoints(y, c);
+        // ngraph::OutputVector oy = ngraph::OutputVector(y.size());
+        // ngraph::OutputVector oc = ngraph::OutputVector(c.size());
 
-        auto op = [](std::shared_ptr<ngraph::Node> node){ 
-            return node->output(0);
-        };
+        // auto op = [](std::shared_ptr<ngraph::Node> node){ 
+        //     return node->output(0);
+        // };
 
-        std::transform(y.begin(), y.end(), oy.begin(), op);
-        std::transform(c.begin(), c.end(), oc.begin(), op);
+        // std::transform(y.begin(), y.end(), oy.begin(), op);
+        // std::transform(c.begin(), c.end(), oc.begin(), op);
 
-        return ngraph::autodiff::Adjoints(oy, oc);
+        // return ngraph::autodiff::Adjoints(oy, oc);
     });
 
     mod.method("backprop_node", [](
@@ -454,7 +456,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         bool transpose_x,
         bool transpose_y)
     {
-        auto a = std::make_shared<ngraph::op::BatchMatMulTranspose>(x, y, transpose_x, transpose_y);
+        //auto a = std::make_shared<ngraph::op::BatchMatMulTranspose>(x, y, transpose_x, transpose_y);
+        auto a = std::make_shared<ngraph::op::BatchDot>(x, y, transpose_x, transpose_y);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
@@ -780,7 +783,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const std::shared_ptr<ngraph::Node>& arg,
         const ngraph::AxisSet& reduction_axes)
     {
-        auto a = std::make_shared<ngraph::op::Sum>(arg->output(0), reduction_axes);
+        //auto a = std::make_shared<ngraph::op::Sum>(arg->output(0), reduction_axes);
+        auto a = std::make_shared<ngraph::op::Sum>(arg, reduction_axes);
         return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
@@ -822,19 +826,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
+        .method("compile", &ngraph::runtime::Backend::compile)
         .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function);
         //.method("set_host_memory_allocator", &ngraph::runtime::Backend::set_host_memory_allocator);
 
     mod.method("create", [](const std::string& type)
         {
-            return ngraph::runtime::Backend::create(type, false);
-        });
-
-    mod.method("compile", [](std::shared_ptr<ngraph::runtime::Backend> backend,
-                             std::shared_ptr<ngraph::Function> func,
-                             bool enable_performance_data)
-        {
-            return backend->compile(func, enable_performance_data);
+            return ngraph::runtime::Backend::create(type);
         });
 
     mod.method("create_tensor", [](
@@ -930,7 +928,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         size_t dst_input_index,
         const std::shared_ptr<ngraph::Node>& new_node) 
     {
-        return ngraph::special_insert_new_node_between(
+        return ngraph::my_insert_new_node_between(
             src_node,
             src_output_index,
             dst_node,
@@ -1078,10 +1076,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         .method("getinstance", &ngraph::pmem::PMEMManager::getinstance)
         .method("set_pool_dir", &ngraph::pmem::PMEMManager::set_pool_dir);
 
-    mod.method("set_pmm_allocator", [](const std::shared_ptr<ngraph::runtime::Backend> backend)
-    {
-        backend->set_host_memory_allocator(ngraph::runtime::get_pmm_allocator());
-    });
+    //mod.method("set_pmm_allocator", [](const std::shared_ptr<ngraph::runtime::Backend> backend)
+    //{
+    //    backend->set_host_memory_allocator(ngraph::runtime::get_pmm_allocator());
+    //});
 #endif
 
     // ONNX Stuff
