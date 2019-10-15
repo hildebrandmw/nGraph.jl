@@ -1044,6 +1044,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         tensor->set_pool_number(1);
     });
 
+    mod.method("set_pool_number", [](
+        const std::shared_ptr<ngraph::descriptor::Tensor> tensor,
+        int64_t pool)
+    {
+        tensor->set_pool_number(pool);
+    });
+
     // Mark that a tensor should not be placed in persistent memory
     mod.method("make_volatile", [](const std::shared_ptr<ngraph::descriptor::Tensor> tensor)
     {

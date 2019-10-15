@@ -500,4 +500,5 @@ PersistentTensor(backend, t::TensorDescriptor) = Tensor(eltype(t), Persistent(),
 # Set pool offsets back to zero
 reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(getpointer(T), convert(UInt, 0))
 get_pool_offset(T::TensorDescriptor) = Lib.get_pool_offset(getpointer(T))
+set_pool_number(T::TensorDescriptor, i) = Lib.set_pool_number(getpointer(T), convert(Int, i))
 
