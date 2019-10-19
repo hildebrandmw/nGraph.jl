@@ -323,6 +323,8 @@ struct TensorView
     base::Array
 
     function TensorView(backend::Backend, v::Array{T,N}) where {T,N}
+        # This is kind of scary - we ... just have to make sure that the parent array 
+        # doesn't get moved (in.e. resized ... )
         vptr = Base.unsafe_convert(Ptr{Cvoid}, pointer(v))
         ptr = Lib.create_tensor(
             getpointer(backend), 
@@ -369,6 +371,8 @@ function Base.size(t::TensorView)
     shape = Shape(getpointer(t))
     return ntuple(i -> shape[i], length(shape))
 end
+
+Base.parent(t::TensorView) = t.base
 
 #####
 ##### Adjoints
