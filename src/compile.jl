@@ -25,6 +25,7 @@ mutable struct Executable{T}
     end
 end
 wraptype(::Executable) = HasPointer()
+reset_counters(exe::Executable) = Lib.reset_counters(getpointer(exe))
 
 # convenience unwrapper
 function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector; kw...)
@@ -33,9 +34,9 @@ function compile(backend::Backend, inputs::ParameterVector, outputs::NodeVector;
 end
 
 function compile(
-        backend::Backend, 
-        ngraph_function::NFunction; 
-        emit_timing::Bool = false, 
+        backend::Backend,
+        ngraph_function::NFunction;
+        emit_timing::Bool = false,
         callback = nothing
     )
 
@@ -51,11 +52,11 @@ function compile(
 end
 
 apply_callback!(f::NFunction, ::Nothing) = nothing
-function apply_callback!(f::NFunction, cb) 
+function apply_callback!(f::NFunction, cb)
     CB = @cfunction($(() -> cb(f)), Cvoid, ())
 
     # Save the callback with the NFunction object to avoid it being garbage collected
-    f.callback = CB 
+    f.callback = CB
 
     # Go through the c++ library to attach the callback to the underlying nGraph function
     Lib.set_jl_callback(getpointer(f), Base.unsafe_convert(Ptr{Cvoid}, CB))
@@ -71,16 +72,16 @@ end
 """
     get_performance(ex::Executable) -> Dict{String,Int}
 
-Return the runtime in microseconds of each kernel in `ex` as a dictionary keyed by kernel 
+Return the runtime in microseconds of each kernel in `ex` as a dictionary keyed by kernel
 name.
 """
 function get_performance(ex::Executable)
     # Construct a PerfCounterTranslator
-    translator = Lib.PerfCounterTranslator(getpointer(ex))  
+    translator = Lib.PerfCounterTranslator(getpointer(ex))
 
     # Create a dictionary of timing results. Iterate through the CounterTranslator to
     # construct the dict.
-    times = Dict{String,Int}() 
+    times = Dict{String,Int}()
     for i in 1:Lib._length(translator)
         name, time = Lib._getindex(translator, i-1)
         times[name] = convert(Int, time)

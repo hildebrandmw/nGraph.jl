@@ -59,7 +59,6 @@ cd(builddir)
 cmake_args = [
     "-DNGRAPH_CODEGEN_ENABLE=TRUE",
     "-DCMAKE_BUILD_TYPE=Release",
-    #"-DNGRAPH_TBB_ENABLE=FALSE",
     "-DCMAKE_C_COMPILER=$CC",
     "-DCMAKE_CXX_COMPILER=$CXX",
     "-DCMAKE_INSTALL_PREFIX=$(joinpath(@__DIR__, "usr"))",
@@ -72,7 +71,6 @@ parameters["PMDK"] && push!(cmake_args, "-DNGRAPH_PMDK_ENABLE=TRUE")
 parameters["DEBUG"] && push!(cmake_args, "-DNGRAPH_DEBUG_ENABLE=TRUE")
 parameters["GPU"] && push!(cmake_args, "-DNGRAPH_GPU_ENABLE=TRUE")
 parameters["NUMA"] && push!(cmake_args, "-DNGRAPH_NUMA_ENABLE=TRUE")
-
 
 run(`$cmake_path .. $cmake_args`)
 run(`make -j $nproc`)

@@ -270,7 +270,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                     //
                     // Find the canonical shared_ptr from the node and use that.
                     auto node_shared_ptr = std::dynamic_pointer_cast<ngraph::Node>(
-                            input->get_node()->shared_from_this()); 
+                            input->get_node()->shared_from_this());
 
                     nodes.emplace_back(node_shared_ptr);
                  }
@@ -292,9 +292,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                 const ngraph::NodeVector& args)
     {
         return node->copy_with_new_args(args);
-        // Create an OutputVector from the arguments 
-        //ngraph::OutputVector ov = ngraph::OutputVector(args.size());    
-        //auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); }; 
+        // Create an OutputVector from the arguments
+        //ngraph::OutputVector ov = ngraph::OutputVector(args.size());
+        //auto op = [](std::shared_ptr<ngraph::Node> node){ return node->output(0); };
         //std::transform(args.begin(), args.end(), ov.begin(), op);
         //return node->copy_with_new_inputs(ov);
     });
@@ -410,7 +410,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         // ngraph::OutputVector oy = ngraph::OutputVector(y.size());
         // ngraph::OutputVector oc = ngraph::OutputVector(c.size());
 
-        // auto op = [](std::shared_ptr<ngraph::Node> node){ 
+        // auto op = [](std::shared_ptr<ngraph::Node> node){
         //     return node->output(0);
         // };
 
@@ -606,11 +606,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     //         std::shared_ptr<ngraph::Node> bias)
     // {
     //     auto a = std::make_shared<ngraph::op::Lstm>(
-    //             src_layer, 
-    //             src_iter, 
-    //             weights_layer, 
-    //             weights_iter, 
-    //             bias, 
+    //             src_layer,
+    //             src_iter,
+    //             weights_layer,
+    //             weights_iter,
+    //             bias,
     //             ngraph::runtime::cpu::rnn_utils::vanilla_lstm
     //         );
     //     return std::dynamic_pointer_cast<ngraph::Node>(a);
@@ -768,7 +768,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         const std::shared_ptr<ngraph::Node>& arg)
     {
         auto a = std::make_shared<ngraph::op::Sqrt>(arg);
-        return std::dynamic_pointer_cast<ngraph::Node>(a); 
+        return std::dynamic_pointer_cast<ngraph::Node>(a);
     });
 
     mod.method("op_subtract", [](
@@ -823,6 +823,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
                 executable->call(outputs, inputs);
             }
         );
+
+    mod.method("reset_counters", [](const std::shared_ptr<ngraph::runtime::Executable>& executable)
+    {
+        executable->reset_counters();
+    });
 
     // Backend
     mod.add_type<ngraph::runtime::Backend>("Backend")
@@ -926,7 +931,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         size_t src_output_index,
         const std::shared_ptr<ngraph::Node>& dst_node,
         size_t dst_input_index,
-        const std::shared_ptr<ngraph::Node>& new_node) 
+        const std::shared_ptr<ngraph::Node>& new_node)
     {
         return ngraph::my_insert_new_node_between(
             src_node,
@@ -1024,7 +1029,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         size_t algo,
         size_t workspace_size)
     {
-        ngraph::runtime::gpu::set_algo(node, algo, workspace_size); 
+        ngraph::runtime::gpu::set_algo(node, algo, workspace_size);
     });
 #endif
 
