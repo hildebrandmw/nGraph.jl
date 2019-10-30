@@ -3,8 +3,12 @@ module nGraph
 using Flux, Cassette
 using Random
 using Distributions
+
+# For lazily loading GPU code
+using Requires
 import ProgressMeter
 import JSON
+using CuArrays
 
 export embedding
 
@@ -53,7 +57,7 @@ include("ops.jl")
 include("compile.jl")
 
 include("flux/flux.jl")
-include("gpu.jl")
+#include("gpu.jl")
 #include("models/inception_v4.jl")
 include("models/resnet.jl")
 include("models/test.jl")

@@ -1080,6 +1080,28 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         auto gpu_backend = static_cast<ngraph::runtime::gpu::GPU_Backend*>(backend);
         return gpu_backend->create_remote_tensor(element_type, shape);
     });
+
+    // Get the offset for the workspace tensor.
+    mod.method("get_workspace_tensor_offset", [](std::shared_ptr<ngraph::Node>& node)
+    {
+        return ngraph::runtime::gpu::get_workspace_tensor_offset(node);
+    });
+
+    mod.method("get_workspace_tensor_size", [](std::shared_ptr<ngraph::Node>& node)
+    {
+        return ngraph::runtime::gpu::get_workspace_tensor_size(node);
+    });
+#else
+    // Always return 0 in this case.
+    mod.method("get_workspace_tensor_offset", [](std::shared_ptr<ngraph::Node>)
+    {
+        return 0;
+    });
+
+    mod.method("get_workspace_tensor_size", [](std::shared_ptr<ngraph::Node>& node)
+    {
+        return 0;
+    });
 #endif
 
     // PMDK stuff

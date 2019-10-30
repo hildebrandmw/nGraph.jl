@@ -316,16 +316,29 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 revdims(::Val{N}) where {N} = ntuple(i -> N + 1 - i, N)
 revdims(::AbstractArray{T,N}) where {T,N} = revdims(Val{N}())
 
+# Hook point for dispatch - we need this because we need to turn regular Arrays into GPU 
+# Arrays when a `TensorView` is constructed.
+transport(::Type{CPU}, x::AbstractArray) = x
+transport(::Type{GPU}, x::AbstractArray) = cu(x)
+_pointer(x::AbstractArray) = pointer(x)
+
+# This is all scary ... but CuArrays doesn't provide a way of getting a pointer, and nGraph
+# wants a GPU pointer ...
+_pointer(x::CuArray) = Ptr{Nothing}(UInt(pointer(CuArrays.buffer((x)))))
+
+
 struct TensorView
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
     backend::Backend
     # Keep track of the base array to avoid GC
-    base::Array
+    base::AbstractArray
 
-    function TensorView(backend::Backend, v::Array{T,N}) where {T,N}
+    function TensorView(backend::Backend{C}, v::Array{T,N}) where {C,T,N}
+        v = transport(C, v)
+
         # This is kind of scary - we ... just have to make sure that the parent array 
-        # doesn't get moved (in.e. resized ... )
-        vptr = Base.unsafe_convert(Ptr{Cvoid}, pointer(v))
+        # doesn't get moved (i.e. resized ... )
+        vptr = Base.unsafe_convert(Ptr{Cvoid}, _pointer(v))
         ptr = Lib.create_tensor(
             getpointer(backend), 
             Element(T), 
