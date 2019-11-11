@@ -145,11 +145,11 @@ function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 
 
     dilations = Strides(expand(N-2, dilation))
     node = Lib.op_convolution(
-        getpointer(x), 
-        getpointer(w), 
-        strides, 
-        dilations, 
-        padding_above, 
+        getpointer(x),
+        getpointer(w),
+        strides,
+        dilations,
+        padding_above,
         padding_below
     )
 
@@ -286,7 +286,7 @@ function NNlib.maxpool(x::Node{T,N}, dims::NNlib.PoolDims) where {T,N}
         Shape(pad_size(dims)[1:div(N,2)]),          # padding_below
         Shape(pad_size(dims)[(div(N,2) + 1):N]),    # padding_above
     )
-    return Node{T,N}(ptr)     
+    return Node{T,N}(ptr)
 end
 
 #####
@@ -317,12 +317,12 @@ Base.:-(a::Node) = negative(a)
 
 function onehot(x::Node{T,N}, max_index, onehot_index) where {T,N}
     # Create the output size from `max_index` and `onehot_index`
-    sz = size(x) 
+    sz = size(x)
     output_sz = collect(splicein(sz, max_index, onehot_index))
 
     return Node{T,N+1}(Lib.op_onehot(
-        getpointer(x .- one(T)), 
-        Shape(output_sz), 
+        getpointer(x .- one(T)),
+        Shape(output_sz),
         convert(UInt, N + 1 - onehot_index)
     ))
 end
