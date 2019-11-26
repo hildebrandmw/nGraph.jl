@@ -252,7 +252,7 @@ end
 _as(::Type{<:Node}, x) = Node(x)
 _as(::Type{NodeDescriptor}, x) = NodeDescriptor(x)
 
-function get_output(N::T, i) where {T <: NodeLike} 
+function get_output(N::T, i) where {T <: NodeLike}
     return _as.(T, (Lib.get_output_nodes(getpointer(N), convert(Int, i-1))))
 end
 
@@ -316,7 +316,7 @@ get_priority(node::NodeLike) = Lib.get_priority(getpointer(node))
 revdims(::Val{N}) where {N} = ntuple(i -> N + 1 - i, N)
 revdims(::AbstractArray{T,N}) where {T,N} = revdims(Val{N}())
 
-# Hook point for dispatch - we need this because we need to turn regular Arrays into GPU 
+# Hook point for dispatch - we need this because we need to turn regular Arrays into GPU
 # Arrays when a `TensorView` is constructed.
 transport(::Type{CPU}, x::AbstractArray) = x
 transport(::Type{GPU}, x::AbstractArray) = CuArrays.cu(x)
@@ -325,7 +325,6 @@ _pointer(x::AbstractArray) = pointer(x)
 # This is all scary ... but CuArrays doesn't provide a way of getting a pointer, and nGraph
 # wants a GPU pointer ...
 _pointer(x::CuArrays.CuArray) = Ptr{Nothing}(UInt(pointer(CuArrays.buffer((x)))))
-
 struct TensorView
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
     backend::Backend
@@ -335,12 +334,12 @@ struct TensorView
     function TensorView(backend::Backend{C}, v::Array{T,N}) where {C,T,N}
         v = transport(C, v)
 
-        # This is kind of scary - we ... just have to make sure that the parent array 
+        # This is kind of scary - we ... just have to make sure that the parent array
         # doesn't get moved (i.e. resized ... )
         vptr = Base.unsafe_convert(Ptr{Cvoid}, _pointer(v))
         ptr = Lib.create_tensor(
-            getpointer(backend), 
-            Element(T), 
+            getpointer(backend),
+            Element(T),
             Shape(size(v)),
             vptr
         )
@@ -366,7 +365,7 @@ Base.eltype(T::TensorView) = back(Lib.get_element_type(getpointer(T)))
 Base.sizeof(t::TensorView) = convert(Int, Lib.get_size_in_bytes(getpointer(t)))
 
 TensorView(backend, x::TensorView) = x
-function TensorView(backend, x::T) where {T} 
+function TensorView(backend, x::T) where {T}
     A = Array{T,0}(undef)
     A[] = x
     return TensorView(backend, A)
