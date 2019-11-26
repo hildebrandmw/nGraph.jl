@@ -319,12 +319,8 @@ revdims(::AbstractArray{T,N}) where {T,N} = revdims(Val{N}())
 # Hook point for dispatch - we need this because we need to turn regular Arrays into GPU
 # Arrays when a `TensorView` is constructed.
 transport(::Type{CPU}, x::AbstractArray) = x
-transport(::Type{GPU}, x::AbstractArray) = CuArrays.cu(x)
 _pointer(x::AbstractArray) = pointer(x)
 
-# This is all scary ... but CuArrays doesn't provide a way of getting a pointer, and nGraph
-# wants a GPU pointer ...
-_pointer(x::CuArrays.CuArray) = Ptr{Nothing}(UInt(pointer(CuArrays.buffer((x)))))
 struct TensorView
     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
     backend::Backend

@@ -1,13 +1,15 @@
 module nGraph
 
+# stdlinb
 using Random
 using Distributions
 
+# external dependcies
 using Cassette
-import CuArrays
 using Flux
 import ProgressMeter
 import JSON
+import Requires
 
 export embedding
 
@@ -16,6 +18,7 @@ using Dates
 # Turn on CPU code generation by default.
 function __init__()
     enable_codegen()
+    Requires.@require CuArrays="3a865a2d-5b23-5a0f-bc46-62713ec82fae" include("cuarrays.jl")
 end
 
 # function embedding(indices::Matrix, weights::Array)

@@ -7,3 +7,4 @@ cpu_codegen/
 gpu_codegen/
 tags
 desc_file
+*.swp
