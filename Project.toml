@@ -12,7 +12,6 @@ Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
-IRTools = "7869d1d1-7146-5819-86e3-90919afe41df"
 IterTools = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
@@ -21,9 +20,13 @@ MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
-Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[compat]
+Cassette = "0.2.6"
+CxxWrap = "0.8.2"
+Flux = "0.9.0"
+julia = "1.2"
 
 [extras]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"

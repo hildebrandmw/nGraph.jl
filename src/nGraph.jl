@@ -1,14 +1,13 @@
 module nGraph
 
-using Flux, Cassette
 using Random
 using Distributions
 
-# For lazily loading GPU code
-using Requires
+using Cassette
+import CuArrays
+using Flux
 import ProgressMeter
 import JSON
-using CuArrays
 
 export embedding
 
