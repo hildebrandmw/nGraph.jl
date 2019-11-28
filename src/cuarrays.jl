@@ -1,4 +1,4 @@
-using .CuArrays
+using CuArrays
 
 transport(::Type{GPU}, x::AbstractArray) = cu(x)
 

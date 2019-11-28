@@ -9,7 +9,6 @@ using Cassette
 using Flux
 import ProgressMeter
 import JSON
-import Requires
 
 export embedding
 
@@ -18,7 +17,6 @@ using Dates
 # Turn on CPU code generation by default.
 function __init__()
     enable_codegen()
-    Requires.@require CuArrays="3a865a2d-5b23-5a0f-bc46-62713ec82fae" include("cuarrays.jl")
 end
 
 # function embedding(indices::Matrix, weights::Array)
@@ -33,6 +31,13 @@ const SRCDIR = @__DIR__
 const PKGDIR = dirname(SRCDIR)
 const DEPSDIR = joinpath(PKGDIR, "deps")
 const MODELDIR = joinpath(PKGDIR, "models")
+
+# Check if GPU is required. If so, bring in the GPU code
+params = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
+if params["GPU"]
+    @info "Including CUDA Arrays"
+    include("cuarrays.jl")
+end
 
 # Enable experimental operations
 const EXPERIMENTAL = true
