@@ -136,11 +136,6 @@ AxisVector(x, n) = AxisVector([x], n)
 ##### Backend
 #####
 
-# For dispatching backend treatment
-abstract type AbstractBackendType end
-struct CPU <: AbstractBackendType end
-struct GPU <: AbstractBackendType end
-
 # Can rely on constant propagation to make this type stable in many circumnstances.
 function backend_type(s::String)
     if s == "CPU"

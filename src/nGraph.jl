@@ -32,6 +32,11 @@ const PKGDIR = dirname(SRCDIR)
 const DEPSDIR = joinpath(PKGDIR, "deps")
 const MODELDIR = joinpath(PKGDIR, "models")
 
+# For dispatching backend treatment
+abstract type AbstractBackendType end
+struct CPU <: AbstractBackendType end
+struct GPU <: AbstractBackendType end
+
 # Check if GPU is required. If so, bring in the GPU code
 params = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
 if params["GPU"]
