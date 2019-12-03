@@ -1,6 +1,1 @@
-{
-    "PMDK": true,
-    "GPU": false,
-    "DEBUG": false,
-    "NUMA": true
-}
+{"DEBUG":false,"PMDK":true,"NUMA":true,"GPU":false}

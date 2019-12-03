@@ -375,6 +375,7 @@ function Base.size(t::TensorView)
 end
 
 Base.parent(t::TensorView) = t.base
+fetch(t::TensorView) = collect(parent(t))
 
 #####
 ##### Adjoints
