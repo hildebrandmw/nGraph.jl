@@ -394,9 +394,9 @@ version = "0.32.0"
 
 [[StatsFuns]]
 deps = ["Rmath", "SpecialFunctions"]
-git-tree-sha1 = "67745a79d8e83a83737a7e17a383c54720a97f41"
+git-tree-sha1 = "c743824db897673c03b77f7756299ca0eb078e72"
 uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
-version = "0.9.0"
+version = "0.9.1"
 
 [[SuiteSparse]]
 deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
