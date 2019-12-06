@@ -220,7 +220,6 @@ Base.:*(x::AbstractArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 Base.:*(x::Node{T,1}, y::AbstractArray{T,2}) where {T} = x * Node(y)
 Base.:*(x::Node{T,2}, y::AbstractArray{T,2}) where {T} = x * Node(y)
 
-
 #####
 ##### Embedding
 #####
@@ -305,6 +304,14 @@ end
 #####
 
 multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(getpointer(a), getpointer(b)))
+
+function Base.:*(a::Node{T,0}, b::U) where {T, U <: Number}
+    R = promote_type(T,U)
+    a = convert_eltype(R, a)
+    b = constant(convert(R, b))
+    return multiply(a, b)
+end
+Base.:*(b::U, a::Node{T,0}) where {U <: Number, T} = *(a, b)
 
 #####
 ##### Minimum

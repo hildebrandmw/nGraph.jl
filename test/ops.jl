@@ -1,5 +1,9 @@
 using Flux
 
+@testset "Add" begin
+
+end
+
 @testset "Constant" begin
     x = rand(Float32, 10, 10)
     X = nGraph.Node(x)
@@ -28,7 +32,7 @@ end
     @test g(x) == f().base
 
     # More extravagent reshape
-    x = rand(Float32, 1, 2, 3, 4, 5, 6) 
+    x = rand(Float32, 1, 2, 3, 4, 5, 6)
     g = x -> reshape(x, 6, 5, :, 3, 2)
 
     N = nGraph.Node(x)
@@ -49,7 +53,7 @@ end
     @test isapprox(z, f().base)
 
     # 2D case
-    x = rand(Float32, 100, 100) 
+    x = rand(Float32, 100, 100)
     z = softmax(x)
     f = nGraph.compile(backend, softmax, x)
     @test isapprox(z, f().base)

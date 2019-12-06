@@ -8,7 +8,7 @@
     backend = nGraph.Backend()
     f = nGraph.compile(backend, Flux.crossentropy, x, y)
 
-    @test isapprox(z, f().base[])
+    @test isapprox(z, parent(f())[])
 end
 
 #####
