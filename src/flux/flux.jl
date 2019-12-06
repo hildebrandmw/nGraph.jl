@@ -15,76 +15,65 @@ hidden output of a ngraph function.
 """
 __register(x::Node) = nothing
 
-"""
-    __flip(x::Node) -> Nothing
-
-By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers that the
-data for `x` should be flipped
-"""
-__flip(x::Node) = nothing
-
-"""
-    __inplace(x) -> Nothing
-
-Annotate a node as a parameter requiring inplace updates.
-"""
-__inplace(x) = nothing
-
 struct SnoopMeta
-    parameters::IdDict{Any,Node}
-    data::IdDict{Node,AbstractArray}
+    # The Julia containers for the parameters of this network
+    parameters::IdDict{Any,Nothing}
+
+    # Mapping of Parameter to nGraph Node
+    param_to_node::IdDict{Any,Node}
+    node_to_param::IdDict{Node,Any}
+
     # Used for keeping track of the order that Nodes are created for deterministic ordering
     # of inputs and outputs
     primary::Vector{Node}
     secondary::Vector{Node}
-
-    # Markers for inplace nodes.
-    inplace_nodes::IdDict{Node,Nothing}
 end
 
 SnoopMeta() = SnoopMeta(
+    IdDict{Any,Nothing}(),
     IdDict{Any,Node}(),
-    IdDict{Node,AbstractArray}(),
+    IdDict{Node,Any}(),
     Node[],
     Node[],
-    IdDict{Node,Nothing}(),
 )
 
 #####
 ##### Cassette Overdubs
 #####
 
-# Hijack Node constructors from TrackedArrays
-function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Flux.Tracker.TrackedArray) where {T,N}
+# Hijack Node constructors from Arrays
+function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::AbstractArray) where {T,N}
+    # Check if this array is a parameter - if so,make it an nGraph input.
+    # Otherwise, make it a constant.
     if haskey(ctx.metadata.parameters, x)
-        node = ctx.metadata.parameters[x]::Node{T,N}
-    else
-        # Don't recurse into the Node Creation since we implicitly turn Arrays into
-        # constants, which will happen if we do recurse
-        node = f(x)::Node{T,N}
-        ctx.metadata.parameters[x] = node
-        push!(ctx.metadata.primary, node)
+        # Check if there is an entry for this parameter already.
+        # If so, just return that.
+        #
+        # Otherwise, we have to create one.
+        node = get(ctx.metadata.param_to_node, x, nothing)
+        if isnothing(node)
+            node = f(x)::Node{T,N}
+
+            # Update internal data structures
+            ctx.metadata.param_to_node[x] = node
+            ctx.metadata.node_to_param[node] = x
+            push!(ctx.metadata.primary, node)
+        else
+            @assert isa(node, Node{T,N})
+        end
+
+        return node
     end
 
-    # Save the data in the tracked array for constructing tensors later.
-    get!(ctx.metadata.data, node, copy(x.data))
-    return node
+    # Otherwise, make this a constant
+    return constant(x)
 end
+
+# Do not hijack creating nodes from nodes.
+Cassette.overdub(ctx::SnoopCtx, f::Type{<:Node}, x::Node) = f(x)
 
 Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) =
     push!(ctx.metadata.secondary, x)
-
-# If this was not an implicitly created kernel, it won't have a registered entry in
-# ctx.metadata.data, so do nothing
-Cassette.overdub(ctx::SnoopCtx, ::typeof(__flip), x::Node) = haskey(ctx.metadata.data, x) && flip!(ctx.metadata.data[x])
-
-# Mark objects as requiring inplace updates.
-function Cassette.overdub(ctx::SnoopCtx, ::typeof(__inplace), x)
-    node = get(ctx.metadata.parameters, x, nothing)
-    if !isnothing(node)
-        ctx.metadata.inplace_nodes[node] = nothing
-    end
-end
 
 # Get around Cassette bug with `reverse`
 Cassette.overdub(::SnoopCtx, ::typeof(reverse), args...) = reverse(args...)
@@ -96,11 +85,11 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) =
 Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
     Cassette.overdub(ctx, _conv_impl, f, args...)
 
+Cassette.overdub(ctx::SnoopCtx, f::Flux.CrossCor, args...) =
+    Cassette.overdub(ctx, _conv_impl, f, args...)
+
 Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
-
-# Slurp up constructors to Nodes from standard Arrays to become constants.
-Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::Array{T,N}) where {T,N} = constant(x)
 
 # Skip recursing initialization calls - recursing turns out to take a very, very long time.
 Cassette.overdub(ctx::SnoopCtx, f::typeof(rand), args...) = f(args...)
@@ -121,8 +110,6 @@ function compile(
         f,
         args...;
         optimizer = Inference,
-        # if !isnothing, should be a callback that returns tensor descriptors that should
-        # be assigned into remote memory
         mutator = identity,
         kw...
     )
@@ -145,25 +132,22 @@ Traced parameters from a compiled function: `f(args...)`.
 * `outputs`: The nodes that represent the results of `f(args...)`.
 * `implicit_outputs::Vector{Node}`: Outputs that were implicitly created during tracing -
     usually the result of BatchNorms being wierd.
-* `parameters::Vector{Node}`: Vector of implicit parameters to the function. One is created
-    for each `TrackedArray` that is converted to a `Node` during the traced execution of `f`.
-* `data::Vector{Array}`: The array data that makes up each `parameter` node. These items are
-    index related to the `parameters` field - so, for example, the array at index `2`
-    corresponds to the parameter at index `2`.
-* `args::Vector`: The original arguments to the function.
-* `inplace::IdDict{Node,Nothing}`: Nodes that have been annotated as `inplace`. Kind of an
-    awkward interface - essentially an `IdSet`.
-* `_id::IdDict{Any,Node}`: The `IdDict` corresponding `TrackedArrays` to `Nodes`.
+
+
 """
 struct Trace
     inputs::Vector{Node}
     outputs::Vector{Node}
     implicit_outputs::Vector{Node}
-    parameters::Vector{Node}
-    data::Vector
+
+    # Record of what is a parameter
+    parameters::IdDict{Any,Nothing}
+    parameter_nodes::Vector{Node}
+
+    param_to_node::IdDict{Any,Node}
+    node_to_param::IdDict{Node,Any}
+
     args::Vector
-    inplace::IdDict{Node,Nothing}
-    _id::IdDict{Any,Node}
 end
 
 # Step 1 of compilation - trace the provided function with the provided arguments to
@@ -171,32 +155,30 @@ end
 #
 # Returns an argument named tuple that is given to the next stage of compilation.
 function snoop(f, args...)
-        #optimizer = Inference,
-        #isremote = nothing
     ctx = SnoopCtx(metadata = SnoopMeta())
 
-    # Extract the parameter from all the inputs
+    # Record the parameters
+    flux_parameters = Flux.params(f)
+    for p in Flux.params(f)
+        ctx.metadata.parameters[p] = nothing
+    end
+
+    # Extract the inputs
     inputs = collect(Node.(args))
 
     # Perform traced execution on the function.
     outputs = collect(astuple(Cassette.overdub(ctx, f, inputs...)))
     @assert all(x -> isa(x, Node), outputs)
 
-    # Get all of the implicit parameters that were instantiated during traced execution.
-    params = ctx.metadata.primary
-    data = [ctx.metadata.data[p] for p in params]
-
-    println("Found $(length(params)) params")
-
     return Trace(
         inputs,
         outputs,
         ctx.metadata.secondary,
-        params,
-        data,
-        collect(args),
-        ctx.metadata.inplace_nodes,
         ctx.metadata.parameters,
+        ctx.metadata.primary,
+        ctx.metadata.param_to_node,
+        ctx.metadata.node_to_param,
+        collect(args),
     )
 end
 

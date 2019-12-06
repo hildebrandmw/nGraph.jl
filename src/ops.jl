@@ -207,8 +207,19 @@ dot(a::Node{T}, b::Node{T}, n) where {T,N,M} =
 
 # Fully Connected
 Base.:*(w::Node, x::Node) = dot(w, x, 1)
+
 Base.:*(w::Node, x::AbstractArray) = w * Node(x)
 Base.:*(w::AbstractArray, x::Node) = Node(w) * x
+
+# Methods defined to avoid method ambiguity in julia's dispatch
+Base.:*(x::Node{T,2}, y::Node{T,2}) where {T} = dot(x, y, 1)
+Base.:*(x::Node{T,2}, y::Node{T,1}) where {T} = dot(x, y, 1)
+
+Base.:*(x::AbstractArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
+Base.:*(x::AbstractArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
+Base.:*(x::Node{T,1}, y::AbstractArray{T,2}) where {T} = x * Node(y)
+Base.:*(x::Node{T,2}, y::AbstractArray{T,2}) where {T} = x * Node(y)
+
 
 #####
 ##### Embedding

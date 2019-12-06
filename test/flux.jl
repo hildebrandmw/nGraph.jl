@@ -1,21 +1,24 @@
 @testset "Testing ConvConversion" begin
     # Test the Conv flux layer
-    w = rand(Float32, 3, 3, 128, 256)
-    b = rand(Float32, 256)
-    x = rand(Float32, 14, 14, 128, 10)
 
-    C = Conv(Flux.param(w), param(b))
-    expected = C(x)
+    input_channels = (10, 16, 20, 64)
+    output_channels = (10, 16, 20, 64)
+    batch_sizes = (16,)
+    backend = nGraph.Backend("CPU")
 
-    backend = nGraph.Backend()
-    f = nGraph.compile(backend, C, x)
+    for (ic, oc, bs) in Iterators.product(input_channels, output_channels, batch_sizes)
+        C = CrossCor((3,3), ic => oc, Flux.relu)
+        x = rand(Float32, 14, 14, ic, bs)
 
-    Z = f()
+        E = C(x)
+        f = nGraph.compile(backend, C, x)
+        Z = parent(f())
 
-    collected_Z = read(Z)
-
-    @test size(expected) == size(collected_Z)
-    @test isapprox(expected, collected_Z)
+        approx = isapprox(Z, E)
+        color = approx ? :green : :red
+        printstyled("$ic $oc $bs\n"; color = color)
+        @test approx
+    end
 end
 
 @testset begin
@@ -33,5 +36,5 @@ end
     backend = nGraph.Backend()
     f = nGraph.compile(backend, m, x)
 
-    @test isapprox(expected, read(f()))
+    @test isapprox(expected, parent(f()))
 end

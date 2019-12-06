@@ -7,9 +7,9 @@ struct Inference
 end
 
 function apply!(f, backend::Backend, ::Type{Inference}, trace)
-    # Call the higher order `f` on each element of the `data` array
-    tensors = TensorView.(Ref(backend), f.(trace.data))
-    return Inference(tensors), trace.parameters, ()
+    # Wrap all of the parameters in a TensorView.
+    tensors = [TensorView(backend, trace.node_to_param[p]) for p in trace.parameter_nodes]
+    return Inference(tensors), trace.parameter_nodes, ()
 end
 
 getinputs(I::Inference) = I.tensors
@@ -38,7 +38,6 @@ function create(::Type{Gradient}, args::NamedTuple)
     data = args.data
 
     @show params
-
     # Map params nodes back to their parent TrackedArray
     @info "Reversing ID Dict"
     id_rev = IdDict()
@@ -66,11 +65,11 @@ getoutputs(G::Gradient) = G.gradients
 update!(::Gradient) = nothing
 
 function instantiate(::Type{Gradient}, backend, ::Nothing, data, params, gradients, id_rev)
-    param_tensors = Tensor[] 
+    param_tensors = Tensor[]
     gradient_tensors = Tensor[]
     grad_map = IdDict()
     for (d, n, g) in zip(data, params, gradients)
-        @assert size(n) == size(g) 
+        @assert size(n) == size(g)
         @assert size(d) == size(n)
 
         pt = Tensor(backend, n)
@@ -100,53 +99,31 @@ end
 
 function apply!(f, backend::Backend, sgd::SGD, trace)
     # Unpack `trace` arguments
-    params = trace.parameters
-    inplace_nodes = trace.inplace
+    parameter_nodes = trace.parameter_nodes
 
     # Create backprop nodes for each parameters.
     adjoints = make_adjoints(first(trace.outputs), -constant(sgd.learning_rate))
 
-    backprop_nodes = [backprop_node(adjoints, n) for n in params]
-    updates = map(zip(params, backprop_nodes)) do x
+    backprop_nodes = [backprop_node(adjoints, n) for n in parameter_nodes]
+    update_nodes = map(zip(parameter_nodes, backprop_nodes)) do x
         n, bn = x
-
-        # Backprop through LSTMs results in things being transposed - which is not helpful.
-        # Untranspose them here ...
-        if size(n) == reverse(size(bn))
-            bn = transpose(bn)
-        end
-
-        # TODO: Make this embedding specific instead of just inplace_nodes.
-        if haskey(inplace_nodes, n)
-            return bn
-        else
-            return n + bn
-        end
+        return n + bn
     end
 
-    param_tensors = TensorView.(Ref(backend), f.(trace.data))
-    update_tensors = map(zip(updates, params, param_tensors, trace.data)) do x
-        # Unpack argument
-        node = x[1]
-        param = x[2]
-        param_tensor = x[3]
-        datum = x[4]
-
-        # If this is an inplace node - copy over the parameter tensor.
-        if haskey(inplace_nodes, param)
-            @info "Creating an Inplace Node"
-            @assert size(node) == size(param) == size(param_tensor)
-            return param_tensor
-        else
-            # Need to make sure that we create a copy of the underlying data to create
-            # a new TensorView - otherwise we'll accidentally alias with an existing
-            # view ... unless that's what we want of course :D
-            return TensorView(backend, f(copy(datum)))
-        end
+    # Wrap the input parameters in a TensorView
+    parameter_tensors = map(parameter_nodes) do node
+        data = trace.node_to_param[node]
+        return TensorView(backend, f(data))
     end
 
-    state = SGDState(param_tensors, update_tensors)
-    return state, params, updates
+    # Copy the input arrays to achieve double buffering.
+    update_tensors = map(parameter_nodes) do node
+        data = trace.node_to_param[node]
+        return TensorView(backend, f(copy(data)))
+    end
+
+    state = SGDState(parameter_tensors, update_tensors)
+    return state, parameter_nodes, update_nodes
 end
 
 getinputs(S::SGDState) = S.inputs

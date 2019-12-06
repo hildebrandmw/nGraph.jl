@@ -1,10 +1,14 @@
 # Because julia-vim and YouCompleteMe don't get along
 _getsigma(x) = x.σ
 
-function _conv_impl(c::Flux.Conv{N}, x::Node) where {N}
+_dims(c::Flux.Conv{N}) where {N} = N
+_dims(c::Flux.CrossCor{N}) where {N} = N
+
+function _conv_impl(c, x::Node)
+    N = _dims(c)
+
     # We flip standard arrays since nGraph really perform cross-correlation
     n = Node(c.weight)
-    __flip(n)
     cn = NNlib.conv(
         x,
         n;
@@ -41,20 +45,13 @@ function _batchnorm_impl(BN::Flux.BatchNorm, x::Node)
     # graph rewriting in ngraph works correctly.
     #
     # Also note that we have to `__register` the nodes so they become hidden outputs of the
-    # compiled ngraph graph. Otherwide, things break horribly
+   # compiled ngraph graph. Otherwide, things break horribly
     a = get_output_element(n, 1)
     __register(get_output_element(n, 2))
     __register(get_output_element(n, 3))
 
     return BN.λ.(a)
 end
-
-# Extend to unwrap tracked arrays
-Node{T,N}(x::Flux.Tracker.TrackedArray{T,N}) where {T,N} = Node{T,N}(x.data)
-
-# Methods defined to avoid method ambiguity in julia's dispatch
-Base.:*(x::TrackedArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
-Base.:*(x::TrackedArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 
 # Need to flip the convolution kernels
 # NOTE: nGraph's "convolution" is NNlib's crosscorrelation
