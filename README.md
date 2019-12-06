@@ -17,49 +17,67 @@ An experimental frontend for https://github.com/NervanaSystems/ngraph.
 julia> using nGraph, Flux
 
 # We're going to create a simple matrix multiply + bias
-julia> W = param(randn(Float32, 2, 10))
-Tracked 2×10 Array{Float32,2}:
- -2.32432    0.927459  -0.523398   1.06994   -1.34763    0.929182  0.320528  -0.0786303  1.12172   0.526701
- -0.206099  -0.246847  -0.387398  -0.816688  -0.722219  -0.337349  0.916446  -0.140121   0.143286  1.54653
+julia> W = randn(Float32, 2, 10)
+2×10 Array{Float32,2}:
+ -0.0713108   0.485168  -0.511655  -0.282555   0.152891  -0.490765  0.216486  1.835     -0.694151  -0.270645
+  0.0592051  -1.77903    1.73074   -1.50022   -0.530367   1.48821   0.847445  0.190752   1.16327   -0.0605583
 
-julia> b = param(randn(Float32, 2))
-Tracked 2-element Array{Float32,1}:
- -1.965381f0
-  0.06922187f0
+julia> b = randn(Float32, 2)
+2-element Array{Float32,1}:
+ -0.5872276
+  1.2322273
 
-julia> y(x) = σ.(W * x .+ b)
-y (generic function with 1 method)
+julia> f = Dense(W, b, relu)
+Dense(10, 2, relu)
 
 julia> x = randn(Float32, 10)
 10-element Array{Float32,1}:
-  0.18938474
- -1.0258152
-  0.094758816
-  0.6261743
-  0.6724537
-  1.3771137
- -0.22054482
- -1.4793428
- -1.1879464
-  0.12393876
+  1.2264888
+  0.3246307
+  0.6522203
+ -0.5913128
+ -1.3148737
+ -0.5557325
+ -0.107921995
+  0.14666164
+  0.09259398
+  0.94359696
   
 # Demonstrate the results on the Julia side when we call the function
-julia> y(x)
-Tracked 2-element Array{Float32,1}:
- 0.026991807f0
- 0.23356533f0
+julia> f(x)
+2-element Array{Float32,1}:
+ 0.0
+ 2.6006393
  
 # Now, we convert this into an nGraph executable, which will extract 
 # all parameters from the Julia function and turnall of the operations
 # into nGraph ops.
-julia> fex = nGraph.compile(nGraph.Backend("CPU"), y, x);
+julia> fex = nGraph.compile(nGraph.Backend("CPU"), f, x);
 
 julia> typeof(fex)
 nGraph.FluxExecutable{nGraph.CPU,nGraph.InferenceState,1,1}
 
 # When we run the FluxExecutable, we get the same results!
-julia> read(fex())
+julia> fex()
+Tensor View
 2-element Array{Float32,1}:
- 0.026991807
- 0.23356533
+ 0.0
+ 2.6006393
+ 
+ # As a bonus, we are free to change weights and biases and the results will be updated the next time the FluxExecutable is run
+ julia> f.W .= randn(Float32, 2, 10)
+2×10 Array{Float32,2}:
+ -0.223597  0.182274  0.661538  -1.0027    -0.00451888  0.179959  -0.438976  -0.118112  -0.334693   0.0516222
+ -0.24377   0.949058  0.515212   0.229445   0.74604     0.904801   0.101299  -0.532028   0.253983  -0.172822
+ 
+ julia> f(x)
+2-element Array{Float32,1}:
+ 0.17578578
+ 0.0
+ 
+ julia> fex()
+Tensor View
+2-element Array{Float32,1}:
+ 0.17578584
+ 0.0
 ```
