@@ -1,3 +1,110 @@
+# Mapping between ngraph and Julia types.
+const ELEMENT_PAIRS_FORWARD = (
+   Bool    => icxx"ngraph::element::boolean;",
+   Float32 => icxx"ngraph::element::f32;",
+   Float64 => icxx"ngraph::element::f64;",
+   Int32   => icxx"ngraph::element::i32;",
+   Int64   => icxx"ngraph::element::i64;",
+)
+
+for (k,v) in ELEMENT_PAIRS_FORWARD
+    @eval ngraph_type(::Type{$k}) = $v
+end
+
+const ELEMENT_PAIRS_BACKWARD = Dict(icxx"$(v).get_type_enum();" => k for (k,v) in ELEMENT_PAIRS_FORWARD)
+
+julia_type(x) = ELEMENT_PAIRS_BACKWARD[icxx"$(x).get_type_enum();"]
+
+ngraph_type(x) = ngraph_type(typeof(x))
+Element(x) = ngraph_type(x)
+
+#####
+##### Shape
+#####
+
+function Shape(itr)
+    x = icxx"ngraph::Shape(0);"
+
+    # Need to reverse in order because C++ is row-major while Julia is column-major.
+    for i in reverse(itr)
+        icxx"$(x).push_back($i);"
+    end
+    return x
+end
+
+#####
+##### Node
+#####
+
+# Could make this an AbstractArray - but I think I'll try not doing that ...
+abstract type AbstractNode end
+
+# Define a typed and untyped version of the same thing.
+struct Node{P} <: AbstractNode
+    obj::P
+end
+
+struct NodeTyped{T,N,P} <: AbstractNode
+    obj::P
+end
+
+# Conversions between the two
+Node(x::NodeTyped) = Node(x.obj)
+function NodeTyped(x::Node)
+    N = ndims(x)
+    et = icxx"""$(x.obj)->get_element_type();"""
+    icxx"std::cout << $(et).c_type_string() << std::endl;"
+    T = julia_type(et)
+    return NodeTyped{T,N}(x.obj)
+end
+
+# Construction from Julia objects
+function Node(x::AbstractArray{T,N}) where {T,N}
+    element_type = Element(T)
+    shape = Shape(size(x))
+    param = icxx"std::make_shared<ngraph::op::Parameter>($element_type, $shape);"
+    node = icxx"std::dynamic_pointer_cast<ngraph::Node>($param);"
+    return Node(node)
+end
+
+# Array style arguments
+Base.ndims(x::Node) = convert(Int, icxx"$(x.obj)->get_shape().size();")
+Base.ndims(::NodeTyped{T,N}) where {T,N} = N
+
+function Base.size(x::AbstractNode)
+    nd = ndims(x)
+    shape = icxx"$(x.obj)->get_shape();"
+    shape_0 = icxx"$(shape).at(0);"
+    dims = ntuple(i -> convert(UInt, icxx"$(shape).at($(i-1));"), nd)
+    return convert.(Int, reverse(dims))
+end
+Base.length(x) = prod(size(x))
+
+Base.eltype(x::Node) = julia_type(icxx"$(x.obj)->get_element_type();")
+Base.eltype(x::NodeTyped{T}) where {T} = T
+
+Base.IndexStyle(::AbstractNode) = Base.IndexLinear()
+Base.axes(x::AbstractNode) = map(Base.OneTo, size(x))
+
+name(x::AbstractNode) = convert(String, icxx"$(x.obj)->get_name();")
+description(x::AbstractNode) = convert(String, icxx"$(x.obj)->description();")
+
+# So these can be used as keys in a Dict
+Base.:(==)(x::T, y::T) where {T <: AbstractNode} = name(x) == name(y)
+Base.hash(x::AbstractNode, h::UInt = UInt(0x209348)) = hash(name(x), h)
+
+#####
+##### Backend
+#####
+
+const BackendType = cxxt"ngraph::runtime::Backend"
+
+struct Backend{T <: AbstractBackendType}
+    obj::BackendType
+end
+
+#=
+
 # Trait if a type defined here is just a pure CxxWrap pointer
 struct IsPointer end
 
@@ -509,3 +616,4 @@ reset_offset(T::TensorDescriptor) = Lib.set_pool_offset(getpointer(T), convert(U
 get_pool_offset(T::TensorDescriptor) = Lib.get_pool_offset(getpointer(T))
 set_pool_number(T::TensorDescriptor, i) = Lib.set_pool_number(getpointer(T), convert(Int, i))
 
+=#

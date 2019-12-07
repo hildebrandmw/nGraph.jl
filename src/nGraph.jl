@@ -1,3 +1,4 @@
+__precompile__(false)
 module nGraph
 
 # stdlinb
@@ -5,8 +6,10 @@ using Random
 using Distributions
 
 # external dependcies
+using Cxx
 using Cassette
 using Flux
+using Libdl
 import ProgressMeter
 import JSON
 
@@ -14,15 +17,21 @@ export embedding
 
 using Dates
 
-# Turn on CPU code generation by default.
-function __init__()
-    enable_codegen()
-end
+## Turn on CPU code generation by default.
+#function __init__()
+#    enable_codegen()
+#end
 
 const SRCDIR = @__DIR__
 const PKGDIR = dirname(SRCDIR)
 const DEPSDIR = joinpath(PKGDIR, "deps")
+const USRDIR = joinpath(DEPSDIR, "usr")
 const MODELDIR = joinpath(PKGDIR, "models")
+
+# Setup cxx
+Cxx.addHeaderDir(joinpath(USRDIR, "include"))
+cxxinclude("ngraph/ngraph.hpp")
+Libdl.dlopen(joinpath(USRDIR, "lib", "libngraph.so"), Libdl.RTLD_GLOBAL)
 
 # For dispatching backend treatment
 abstract type AbstractBackendType end
@@ -54,38 +63,38 @@ have_compiled() = __HAVE_COMPILED[]
 
 include("build.jl")
 include("env.jl")
-include("lib.jl"); using .Lib
+#include("lib.jl"); using .Lib
 
 include("types.jl")
-include("ops.jl")
-include("compile.jl")
-
-include("flux/flux.jl")
-include("models/resnet.jl")
-include("models/test.jl")
-include("embed_test.jl")
+#include("ops.jl")
+#include("compile.jl")
+#
+#include("flux/flux.jl")
+#include("models/resnet.jl")
+#include("models/test.jl")
+#include("embed_test.jl")
 
 #####
 ##### Util Functions
 #####
 
-embedding(indices::Vector, weights::Matrix) = view(weights, :, indices)
-
-splicein(i::CartesianIndex, v, at) = CartesianIndex(splicein(Tuple(i), v, at))
-splicein(i::Tuple, v, at) = (i[1:at-1]..., v, i[at:end]...)
-
-### Testing Onehot
-function onehot(input, max_index, onehot_index)
-    # Create the output size from `max_index` and `onehot_index`
-    sz = size(input)
-    output_sz = splicein(sz, max_index, onehot_index)
-    output = zeros(eltype(input), output_sz)
-
-    for i in CartesianIndices(input)
-        x = input[i]
-        output[splicein(i, x, onehot_index)] = one(eltype(input))
-    end
-    return output
-end
+# embedding(indices::Vector, weights::Matrix) = view(weights, :, indices)
+#
+# splicein(i::CartesianIndex, v, at) = CartesianIndex(splicein(Tuple(i), v, at))
+# splicein(i::Tuple, v, at) = (i[1:at-1]..., v, i[at:end]...)
+#
+# ### Testing Onehot
+# function onehot(input, max_index, onehot_index)
+#     # Create the output size from `max_index` and `onehot_index`
+#     sz = size(input)
+#     output_sz = splicein(sz, max_index, onehot_index)
+#     output = zeros(eltype(input), output_sz)
+#
+#     for i in CartesianIndices(input)
+#         x = input[i]
+#         output[splicein(i, x, onehot_index)] = one(eltype(input))
+#     end
+#     return output
+# end
 
 end # module
