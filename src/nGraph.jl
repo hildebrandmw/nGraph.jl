@@ -38,6 +38,29 @@ abstract type AbstractBackendType end
 struct CPU <: AbstractBackendType end
 struct GPU <: AbstractBackendType end
 
+# For creating ngraph nodes
+unwrap(x) = x
+macro op(ex)
+    @assert ex.head == :call
+    op = first(ex.args)
+    args = esc.(ex.args[2:end])
+
+    # Emit argument evaluation
+    evals = [:($(Symbol("x$i")) = unwrap($arg)) for (i, arg) in enumerate(args)]
+
+    # Create the argument list for the @icxx_str macro
+    arglist = join(("\$(x$i)" for i in 1:length(args)), ", ")
+
+    str = """
+        auto node = std::make_shared<ngraph::op::$op>($arglist);
+        std::dynamic_pointer_cast<ngraph::Node>(node);
+    """
+    return quote
+        $(evals...)
+        Cxx.@icxx_str $str
+    end
+end
+
 # Check if GPU is required. If so, bring in the GPU code
 params = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
 if params["GPU"]
@@ -66,7 +89,7 @@ include("env.jl")
 #include("lib.jl"); using .Lib
 
 include("types.jl")
-#include("ops.jl")
+include("ops.jl")
 #include("compile.jl")
 #
 #include("flux/flux.jl")

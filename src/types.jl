@@ -1,28 +1,31 @@
-# Mapping between ngraph and Julia types.
-const ELEMENT_PAIRS_FORWARD = (
-   Bool    => icxx"ngraph::element::boolean;",
-   Float32 => icxx"ngraph::element::f32;",
-   Float64 => icxx"ngraph::element::f64;",
-   Int32   => icxx"ngraph::element::i32;",
-   Int64   => icxx"ngraph::element::i64;",
-)
-
-for (k,v) in ELEMENT_PAIRS_FORWARD
-    @eval ngraph_type(::Type{$k}) = $v
-end
-
-const ELEMENT_PAIRS_BACKWARD = Dict(icxx"$(v).get_type_enum();" => k for (k,v) in ELEMENT_PAIRS_FORWARD)
-
-julia_type(x) = ELEMENT_PAIRS_BACKWARD[icxx"$(x).get_type_enum();"]
-
+# Manually write these out - Cxx doesn't like "eval" loops
+ngraph_type(::Type{Bool}) = icxx"ngraph::element::boolean;"
+ngraph_type(::Type{Float32}) = icxx"ngraph::element::f32;"
+ngraph_type(::Type{Float64}) = icxx"ngraph::element::f64;"
+ngraph_type(::Type{Int32}) = icxx"ngraph::element::i32;"
+ngraph_type(::Type{Int64}) = icxx"ngraph::element::i64;"
 ngraph_type(x) = ngraph_type(typeof(x))
 Element(x) = ngraph_type(x)
+
+# map the c++ enum back to the Julia type
+const BACK = Dict{UInt,DataType}(
+    2 => Bool,
+    4 => Float32,
+    5 => Float64,
+    8 => Int32,
+    9 => Int64,
+)
+
+@noinline function julia_type(x)
+    enum = @cxx x.get_type_enum()
+    return BACK[enum.val]
+end
 
 #####
 ##### Shape
 #####
 
-function Shape(itr)
+function Shape(itr::Tuple)
     x = icxx"ngraph::Shape(0);"
 
     # Need to reverse in order because C++ is row-major while Julia is column-major.
@@ -31,6 +34,7 @@ function Shape(itr)
     end
     return x
 end
+Shape(x::AbstractArray) = Shape(size(x))
 
 #####
 ##### Node
@@ -38,14 +42,16 @@ end
 
 # Could make this an AbstractArray - but I think I'll try not doing that ...
 abstract type AbstractNode end
+const NodeCppType = cxxt"std::shared_ptr<ngraph::Node>"
+unwrap(x::AbstractNode) = x.obj
 
 # Define a typed and untyped version of the same thing.
-struct Node{P} <: AbstractNode
-    obj::P
+struct Node <: AbstractNode
+    obj::NodeCppType
 end
 
-struct NodeTyped{T,N,P} <: AbstractNode
-    obj::P
+struct NodeTyped{T,N} <: AbstractNode
+    obj::NodeCppType
 end
 
 # Conversions between the two
@@ -53,19 +59,12 @@ Node(x::NodeTyped) = Node(x.obj)
 function NodeTyped(x::Node)
     N = ndims(x)
     et = icxx"""$(x.obj)->get_element_type();"""
-    icxx"std::cout << $(et).c_type_string() << std::endl;"
     T = julia_type(et)
     return NodeTyped{T,N}(x.obj)
 end
 
 # Construction from Julia objects
-function Node(x::AbstractArray{T,N}) where {T,N}
-    element_type = Element(T)
-    shape = Shape(size(x))
-    param = icxx"std::make_shared<ngraph::op::Parameter>($element_type, $shape);"
-    node = icxx"std::dynamic_pointer_cast<ngraph::Node>($param);"
-    return Node(node)
-end
+Node(x::AbstractArray{T}) where {T} = Node(@op Parameter(Element(T), Shape(x)))
 
 # Array style arguments
 Base.ndims(x::Node) = convert(Int, icxx"$(x.obj)->get_shape().size();")
@@ -74,7 +73,6 @@ Base.ndims(::NodeTyped{T,N}) where {T,N} = N
 function Base.size(x::AbstractNode)
     nd = ndims(x)
     shape = icxx"$(x.obj)->get_shape();"
-    shape_0 = icxx"$(shape).at(0);"
     dims = ntuple(i -> convert(UInt, icxx"$(shape).at($(i-1));"), nd)
     return convert.(Int, reverse(dims))
 end
@@ -93,6 +91,65 @@ description(x::AbstractNode) = convert(String, icxx"$(x.obj)->description();")
 Base.:(==)(x::T, y::T) where {T <: AbstractNode} = name(x) == name(y)
 Base.hash(x::AbstractNode, h::UInt = UInt(0x209348)) = hash(name(x), h)
 
+numinputs(x::AbstractNode) = convert(Int, icxx"$(x.obj)->get_input_size();")
+function getinputnode(x::T, i) where {T <: AbstractNode}
+    node = icxx"""
+        auto i = $(x.obj)->get_inputs().at($(i-1)).get_output();
+        x.get_node();
+        """
+    return T(node)
+end
+getinputnodes(x::AbstractNode) = [getinput(i) for i in 1:numinputs(x)]
+
+numoutputs(x::AbstractNode) = convert(Int, icxx"$(x.obj)->get_output_size();")
+# function getoutputnodes(x::T, i) where {T <: AbstractNode}
+#     i = convert(Int, i-1)
+#     return T.collect(icxx"$(x.obj)->get_output_nodes
+# end
+
+@deprecate get_input_size numinputs
+
+function output(x::AbstractNode, i)
+    shared_ptr = icxx"$(x.obj)->get_output_tensor_ptr($(i-1));"
+    return TensorDescriptor(shared_ptr)
+end
+outputs(x::AbstractNode) = [output(x, i) for i in 1:numoutputs(x)]
+
+function input(x::AbstractNode, i)
+    shared_ptr = icxx"$(x.obj)->get_inputs().at($(i-1)).get_output().get_tensor_ptr();"
+    return TensorDescriptor(shared_ptr)
+end
+inputs(x::AbstractNode) = [input(x, i) for i in 1:numoutputs(x)]
+
+#####
+##### TensorDescriptor
+#####
+
+const TensorDescriptorCppType = cxxt"std::shared_ptr<ngraph::descriptor::Tensor>"
+
+struct TensorDescriptor
+    obj::TensorDescriptorCppType
+end
+
+name(x::TensorDescriptor) = convert(String, icxx"$(x.obj)->get_name();")
+Base.:(==)(a::TensorDescriptor, b::TensorDescriptor) = name(a) == name(b)
+Base.hash(x::TensorDescriptor, h::UInt = UInt(0x20983)) = hash(x, h)
+
+getpool(x::TensorDescriptor) = convert(Int, icxx"$(x.obj)->get_pool_number();")
+function setpool!(x::TensorDescriptor, pool::Integer)
+    pool = convert(UInt, pool)
+    icxx"$(x.obj)->set_pool_number($pool);"
+    return nothing
+end
+
+Base.sizeof(x::TensorDescriptor) = convert(Int, icxx"$(x.obj)->size();")
+function Base.size(x::TensorDescriptor)
+    shape = icxx"$(x.obj)->get_shape();"
+    len = icxx"$(shape).size();"
+    dims = ntuple(i -> convert(UInt, icxx"$(shape).at($(i-1));"), len)
+    return convert.(Int, reverse(dims))
+end
+
 #####
 ##### Backend
 #####
@@ -102,6 +159,21 @@ const BackendType = cxxt"ngraph::runtime::Backend"
 struct Backend{T <: AbstractBackendType}
     obj::BackendType
 end
+
+#####
+##### TensorView
+#####
+
+const TensorViewCppType = cxxt"std::shared_ptr<ngraph::runtime::Tensor>"
+
+struct TensorView
+    obj::TensorViewCppType
+    backend::Backend
+    parent::AbstractArray
+end
+
+Base.parent(x::TensorView) = x.parent
+Base.collect(x::TensorView) = collect(parent(x))
 
 #=
 
