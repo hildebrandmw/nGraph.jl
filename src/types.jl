@@ -1,9 +1,18 @@
-# Manually write these out - Cxx doesn't like "eval" loops
-ngraph_type(::Type{Bool}) = icxx"ngraph::element::boolean;"
-ngraph_type(::Type{Float32}) = icxx"ngraph::element::f32;"
-ngraph_type(::Type{Float64}) = icxx"ngraph::element::f64;"
-ngraph_type(::Type{Int32}) = icxx"ngraph::element::i32;"
-ngraph_type(::Type{Int64}) = icxx"ngraph::element::i64;"
+const NAMEMAP = (
+    Bool => "boolean",
+    Float32 => "f32",
+    Float64 => "f64",
+    Int32 => "i32",
+    Int64 => "i64",
+)
+
+for (t,s) in NAMEMAP
+    str = "ngraph::element::Type_t::$s;"
+    @eval function ngraph_type(::Type{$t})
+        enum = @icxx_str($str)
+        return @cxx ngraph::element::Type(enum)
+    end
+end
 ngraph_type(x) = ngraph_type(typeof(x))
 Element(x) = ngraph_type(x)
 
@@ -17,7 +26,7 @@ const BACK = Dict{UInt,DataType}(
 )
 
 @noinline function julia_type(x)
-    enum = @cxx x.get_type_enum()
+    enum = icxx"$(x).get_type_enum();"
     return BACK[enum.val]
 end
 
@@ -35,6 +44,11 @@ function Shape(itr::Tuple)
     return x
 end
 Shape(x::AbstractArray) = Shape(size(x))
+
+function AxisSet(itr)
+    v = convert(cxxt"std::vector<size_t>", collect(itr))
+    return icxx"ngraph::AxisSet($v);"
+end
 
 #####
 ##### Node

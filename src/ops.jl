@@ -104,6 +104,16 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #
 #     return Node{T,N}(Lib.op_broadcast(getpointer(a), final_shape, axis_set))
 # end
+_broadcast_trailing(M,N) = [i for i in (M+1):N]#
+function Base.broadcast(
+        x::NodeTyped{T,M}
+        shape::NTuple{N,Int};
+        axes = _broadcast_trailing(M,N)
+   ) where {T,M,N}
+
+    shape = Shape(shape)
+
+end
 #
 # #####
 # ##### Concat
