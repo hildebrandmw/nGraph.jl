@@ -11,8 +11,8 @@ ENV["OMP_NUM_THREADS"] = 1
 
 include("types.jl")
 include("ops.jl")
+include("flux.jl")
 #include("loss.jl")
-#include("flux.jl")
 #include("backprop.jl")
 #include("train.jl")
 #include("models/mnist.jl")

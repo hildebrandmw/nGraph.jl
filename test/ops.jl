@@ -1,4 +1,5 @@
 using Flux
+using NNlib
 
 # The order of the operations are is determined roughly in the order of implemntation.
 # This is to make sure "lower-level" funcitonality is working before higher level functionality.
@@ -180,5 +181,54 @@ using Flux
         F = nGraph.compile(backend, f, x, w)
         @test isapprox(parent(F()), f(x, w))
     end
+
+    #####
+    ##### Divide
+    #####
+
+    # Element-wise division
+    A = rand(Float32, 2, 2)
+    B = rand(Float32, 2, 2)
+    f = (a, b) -> a ./ b
+    F = nGraph.compile(backend, f, A, B)
+    @test parent(F()) == f(A, B)
+
+    # Scalar division
+    A = 1
+    B = 2
+    F = nGraph.compile(backend, /, A, B)
+    @test parent(F())[] == A / B
+
+    F = nGraph.compile(backend, //, A, B)
+    @test parent(F())[] == A // B
+
+    f = x -> x / 2
+    F = nGraph.compile(backend, f, A)
+    @test parent(F())[] == f(A)
+
+    #####
+    ##### Reshape
+    #####
+
+    A = rand(Float32, 100)
+    f = x -> reshape(x, 1, :)
+    F = nGraph.compile(backend, f, A)
+    @test parent(F()) == f(A)
+
+    A = rand(Float32, 2, 2, 2)
+    f = x -> reshape(x, :)
+    F = nGraph.compile(backend, f, A)
+    @test parent(F()) == f(A)
+
+    A = rand(Float32, 3, 2, 1)
+    f = x -> reshape(x, 1, 2, 3)
+    F = nGraph.compile(backend, f, A)
+    @test parent(F()) == f(A)
+
+    # More extravagent reshape
+    A = rand(Float32, 1, 2, 3, 4, 5, 6)
+    f = x -> reshape(x, 6, 5, :, 3, 2)
+    F = nGraph.compile(backend, f, A)
+    @test parent(F()) == f(A)
 end
 

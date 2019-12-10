@@ -106,26 +106,28 @@ end
 #####
 
 # Could make this an AbstractArray - but I think I'll try not doing that ...
-abstract type AbstractNode end
 const NodeCppType = cxxt"std::shared_ptr<ngraph::Node>"
-unwrap(x::AbstractNode) = x.obj
 
 # Define a typed and untyped version of the same thing.
-struct Node <: AbstractNode
+struct Node
     obj::NodeCppType
 end
 
-struct NodeTyped{T,N} <: AbstractNode
+# Subtype AbstractArray to get all of the nice fallbacks.
+struct NodeTyped{T,N} <: AbstractArray{T,N}
     obj::NodeCppType
 end
+
+const NodeLike = Union{Node, <:NodeTyped}
+unwrap(x::NodeLike) = x.obj
 
 # Conversions between the two
-Node(x::NodeTyped) = Node(x.obj)
+Node(x::NodeTyped) = Node(unwrap(x))
 function NodeTyped(x::Node)
     N = ndims(x)
     et = icxx"""$(x.obj)->get_element_type();"""
     T = julia_type(et)
-    return NodeTyped{T,N}(x.obj)
+    return NodeTyped{T,N}(unwrap(x))
 end
 NodeTyped(x::NodeCppType) = NodeTyped(Node(x))
 
@@ -149,57 +151,57 @@ end
 Base.ndims(x::Node) = convert(Int, icxx"$(x.obj)->get_shape().size();")
 Base.ndims(::NodeTyped{T,N}) where {T,N} = N
 
-function Base.size(x::AbstractNode)
+function Base.size(x::NodeLike)
     nd = ndims(x)
     shape = icxx"$(x.obj)->get_shape();"
     dims = ntuple(i -> convert(UInt, icxx"$(shape).at($(i-1));"), nd)
     return convert.(Int, reverse(dims))
 end
-Base.size(x::AbstractNode, i::Integer) = size(x)[i]
+Base.size(x::NodeLike, i::Integer) = size(x)[i]
 Base.length(x) = prod(size(x))
 
 Base.eltype(x::Node) = julia_type(icxx"$(x.obj)->get_element_type();")
 Base.eltype(x::NodeTyped{T}) where {T} = T
 
-Base.IndexStyle(::AbstractNode) = Base.IndexLinear()
-Base.axes(x::AbstractNode) = map(Base.OneTo, size(x))
+Base.IndexStyle(::NodeLike) = Base.IndexLinear()
+Base.axes(x::NodeLike) = map(Base.OneTo, size(x))
 
-name(x::AbstractNode) = convert(String, icxx"$(x.obj)->get_name();")
-description(x::AbstractNode) = convert(String, icxx"$(x.obj)->description();")
+name(x::NodeLike) = convert(String, icxx"$(x.obj)->get_name();")
+description(x::NodeLike) = convert(String, icxx"$(x.obj)->description();")
 
 # So these can be used as keys in a Dict
-Base.:(==)(x::T, y::T) where {T <: AbstractNode} = name(x) == name(y)
-Base.hash(x::AbstractNode, h::UInt = UInt(0x209348)) = hash(name(x), h)
+Base.:(==)(x::T, y::T) where {T <: NodeLike} = name(x) == name(y)
+Base.hash(x::NodeLike, h::UInt = UInt(0x209348)) = hash(name(x), h)
 
-numinputs(x::AbstractNode) = convert(Int, icxx"$(x.obj)->get_input_size();")
-function getinputnode(x::T, i) where {T <: AbstractNode}
+numinputs(x::NodeLike) = convert(Int, icxx"$(x.obj)->get_input_size();")
+function getinputnode(x::T, i) where {T <: NodeLike}
     node = icxx"""
         auto i = $(x.obj)->get_inputs().at($(i-1)).get_output();
         x.get_node();
         """
     return T(node)
 end
-getinputnodes(x::AbstractNode) = [getinput(i) for i in 1:numinputs(x)]
+getinputnodes(x::NodeLike) = [getinput(i) for i in 1:numinputs(x)]
 
-numoutputs(x::AbstractNode) = convert(Int, icxx"$(x.obj)->get_output_size();")
-# function getoutputnodes(x::T, i) where {T <: AbstractNode}
+numoutputs(x::NodeLike) = convert(Int, icxx"$(x.obj)->get_output_size();")
+# function getoutputnodes(x::T, i) where {T <: NodeLike}
 #     i = convert(Int, i-1)
 #     return T.collect(icxx"$(x.obj)->get_output_nodes
 # end
 
 @deprecate get_input_size numinputs
 
-function output(x::AbstractNode, i)
+function output(x::NodeLike, i)
     shared_ptr = icxx"$(x.obj)->get_output_tensor_ptr($(i-1));"
     return TensorDescriptor(shared_ptr)
 end
-outputs(x::AbstractNode) = [output(x, i) for i in 1:numoutputs(x)]
+outputs(x::NodeLike) = [output(x, i) for i in 1:numoutputs(x)]
 
-function input(x::AbstractNode, i)
+function input(x::NodeLike, i)
     shared_ptr = icxx"$(x.obj)->get_inputs().at($(i-1)).get_output().get_tensor_ptr();"
     return TensorDescriptor(shared_ptr)
 end
-inputs(x::AbstractNode) = [input(x, i) for i in 1:numoutputs(x)]
+inputs(x::NodeLike) = [input(x, i) for i in 1:numoutputs(x)]
 
 #####
 ##### TensorDescriptor

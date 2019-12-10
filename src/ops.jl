@@ -133,6 +133,7 @@ end
 ##### Convolution
 #####
 
+# Only support the 4d version for now.
 function NNlib.conv(x::NodeTyped{T,4}, w::NodeTyped{T,4}, ddims::NNlib.DenseConvDims) where {T}
     # Check if we have to flip the weights
     # nGraph's "convolution" is Flux's "cross-correlation" - so we have to reverse the usual
@@ -149,64 +150,50 @@ function NNlib.conv(x::NodeTyped{T,4}, w::NodeTyped{T,4}, ddims::NNlib.DenseConv
     padding_below = CoordinateDiff(padding[range(1; step = 2, stop = length(padding))])
     padding_above = CoordinateDiff(padding[range(2; step = 2, stop = length(padding))])
 
-
     return NodeTyped{T,4}(
         @op Convolution(x, w, stride, window_dilation, padding_below, padding_above)
     )
 end
 
-
 #####
 ##### Divide
 #####
 
-# divide(a::Node{T,N}, b::Node{T,N}) where {T,N} =
-#     Node{T,N}(Lib.op_divide(getpointer(a), getpointer(b)))
-#
-# Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
-# Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
-#
-# #####
-# ##### Dot
-# #####
-#
-# # Reverse the order in the call to `Lib.op_dot` to account for row major/col major
-# # differences
+divide(a::T, b::T) where {T <: NodeTyped} = T(@op Divide(a, b))
+
+# Only support `/` and `//` for 0-d arrays
+# Let the broadcasting logic above do the appropriate forwarding for `./`
+Base.:/(a::NodeTyped{T,0}, b::NodeTyped{T,0}) where {T} = divide(a, b)
+Base.://(a::NodeTyped{T,0}, b::NodeTyped{T,0}) where {T} = divide(a, b)
+
+#####
+##### Dot
+#####
+
+# Reverse the order in the call to `Lib.op_dot` to account for row major/col major
+# differences
 # dot(a::Node{T}, b::Node{T}, n) where {T,N,M} =
 #     Node(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
 #
-# # Fully Connected
+# Fully Connected
 # Base.:*(w::Node, x::Node) = dot(w, x, 1)
-#
+
 # Base.:*(w::Node, x::AbstractArray) = w * Node(x)
 # Base.:*(w::AbstractArray, x::Node) = Node(w) * x
-#
-# # Methods defined to avoid method ambiguity in julia's dispatch
+
+# Methods defined to avoid method ambiguity in julia's dispatch
 # Base.:*(x::Node{T,2}, y::Node{T,2}) where {T} = dot(x, y, 1)
 # Base.:*(x::Node{T,2}, y::Node{T,1}) where {T} = dot(x, y, 1)
-#
+
 # Base.:*(x::AbstractArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
 # Base.:*(x::AbstractArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
 # Base.:*(x::Node{T,1}, y::AbstractArray{T,2}) where {T} = x * Node(y)
 # Base.:*(x::Node{T,2}, y::AbstractArray{T,2}) where {T} = x * Node(y)
-#
-# #####
-# ##### Embedding
-# #####
-#
-# function embedding(data::Node, weights)
-#     node = Node(Lib.op_embedding(
-#         getpointer(data .- 1),          # Need to subtract 1 to get to C++ base 0 indexing
-#         getpointer(Node(weights))
-#     ))
-#
-#     return node
-# end
-#
-# #####
-# ##### Indexing
-# #####
-#
+
+#####
+##### Indexing
+#####
+
 # _lb(i) = i
 # _lb(::Colon) = 1
 #
@@ -221,30 +208,30 @@ end
 #
 #     return Node(Lib.op_slice(getpointer.((n, lb, ub))... ))
 # end
-#
-# #####
-# ##### GetOutput
-# #####
-#
+
+#####
+##### GetOutput
+#####
+
 # get_output_element(x::Node, n) = Node(Lib.op_get_output_element(getpointer(x), convert(UInt, n-1)))
-#
-# #####
-# ##### Log
-# #####
-#
+
+#####
+##### Log
+#####
+
 # Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(getpointer(a)))
-#
-# #####
-# ##### Max
-# #####
-#
+
+#####
+##### Max
+#####
+
 # # The semantics between max and maximum are flipped around beween Julia and nGraph
 # Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(getpointer(a), getpointer(b)))
-#
-# #####
-# ##### MaxPool
-# #####
-#
+
+#####
+##### MaxPool
+#####
+
 # function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
 #     # Convert to nGraph types
 #     window_shape = Shape(shape)
@@ -255,7 +242,7 @@ end
 #     ptr = Lib.op_maxpool(getpointer(x), window_shape, strides, padding_below, padding_above)
 #     return Node{T,N}(ptr)
 # end
-#
+
 # stride_size(c::NNlib.PoolDims{N,K,S,P,D}) where {N,K,S,P,D} = S
 # pad_size(c::NNlib.PoolDims{N,K,S,P,D}) where {N,K,S,P,D} = P
 # function NNlib.maxpool(x::Node{T,N}, dims::NNlib.PoolDims) where {T,N}
@@ -268,13 +255,13 @@ end
 #     )
 #     return Node{T,N}(ptr)
 # end
-#
-# #####
-# ##### Multiply
-# #####
-#
+
+#####
+##### Multiply
+#####
+
 # multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(getpointer(a), getpointer(b)))
-#
+
 # function Base.:*(a::Node{T,0}, b::U) where {T, U <: Number}
 #     R = promote_type(T,U)
 #     a = convert_eltype(R, a)
@@ -282,27 +269,27 @@ end
 #     return multiply(a, b)
 # end
 # Base.:*(b::U, a::Node{T,0}) where {U <: Number, T} = *(a, b)
-#
-# #####
-# ##### Minimum
-# #####
-#
-# # The `min` and `minimum` semantics are swapped between Julia and nGraph.
+
+#####
+##### Minimum
+#####
+
+# The `min` and `minimum` semantics are swapped between Julia and nGraph.
 # Base.minimum(a::N, b::N) where {N <: Node} = N(Lib.op_minimum(getpointer(a), getpointer(b)))
 # _forward(::typeof(min)) = minimum
-#
-# #####
-# ##### Negative
-# #####
-#
+
+#####
+##### Negative
+#####
+
 # negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(getpointer(a)))
-#
+
 # Base.:-(a::Node) = negative(a)
-#
-# #####
-# ##### One Hot
-# #####
-#
+
+#####
+##### One Hot
+#####
+
 # function onehot(x::Node{T,N}, max_index, onehot_index) where {T,N}
 #     # Create the output size from `max_index` and `onehot_index`
 #     sz = size(x)
@@ -314,17 +301,17 @@ end
 #         convert(UInt, N + 1 - onehot_index)
 #     ))
 # end
-#
-# #####
-# ##### Parameter
-# #####
-#
+
+#####
+##### Parameter
+#####
+
 # parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
 # parameter(::Type{T}, dims...) where {T} = parameter(T, convert.(Int, dims))
 # parameter(::Type{T}, dims::NTuple{N,Int}) where {T,N} = Node{T,N}(Lib.op_parameter(Element(T), Shape(dims)))
 # parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Shape(())))
 # parameter(x::Node) = x
-#
+
 #####
 ##### permutedims
 #####
@@ -338,93 +325,96 @@ function Base.permutedims(x::T, permutation) where {T <: NodeTyped}
     return T(@op Reshape(x, av, shape))
 end
 
-# #####
-# ##### Power
-# #####
-#
+#####
+##### Power
+#####
+
 # power(a::N, b::N) where {N <: Node} = N(Lib.op_parameter(getpointer(a), getpointer(b)))
 # Base.:^(a::N, b::N) where {N <: Node} = power(a, b)
-#
-# #####
-# ##### Relu
-# #####
-#
+
+#####
+##### Relu
+#####
+
 # Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(getpointer(a)))
-#
-# #####
-# ##### Reshape
-# #####
-#
-# # NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon`
-# # preprocessing for us
-# function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
-#     av = AxisVector(1:N, N)
-#     shape = Shape(dims)
-#     node = Lib.op_reshape(getpointer(x), av, shape)
-#     return Node{T,M}(node)
-# end
+
+#####
+##### Reshape
+#####
+
+# NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon`
+# preprocessing for us
+function Base._reshape(x::NodeTyped{T,N}, dims::NTuple{M,Int}) where {T,N,M}
+    av = AxisVector(1:N, N)
+    shape = Shape(dims)
+    return NodeTyped{T,M}(@op Reshape(x, av, shape))
+end
+
+#####
+##### Reverse
+#####
 
 function reverse_axes(x::NodeTyped{T,N}, axes = ()) where {T,N}
     axes = AxisSet(axes, N)
     return NodeTyped{T,N}(@op Reverse(x, axes))
 end
 
-#
-# #####
-# ##### Result
-# #####
-#
+
+#####
+##### Result
+#####
+
 # result(x::T) where {T <: Node} = T(Lib.op_result(getpointer(x)))
-#
-# #####
-# ##### Sigmoid
-# #####
-#
+
+#####
+##### Sigmoid
+#####
+
 # _sigmoid(x::N) where {N <: Node} = N(Lib.op_sigmoid(getpointer(x)))
-#
-# #####
-# ##### Softmax
-# #####
-#
+
+#####
+##### Softmax
+#####
+
 # function Flux.softmax(x::Node{T,N}; axes = 1) where {T,N}
 #     av = AxisSet(axes, N)
 #     node = Lib.op_softmax(getpointer(x), av)
 #     return Node{T,N}(node)
 # end
-#
-# #####
-# ##### Sqrt
-# #####
-#
+
+#####
+##### Sqrt
+#####
+
 # Base.sqrt(x::N) where {N <: Node} = N(Lib.op_sqrt(getpointer(x)))
-#
-# #####
-# ##### Subtract
-# #####
-#
+
+#####
+##### Subtract
+#####
+
 # subtract(a::N, b::N) where {N <: Node} = N(Lib.op_subtract(getpointer(a), getpointer(b)))
 # Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
-#
-# #####
-# ##### Sum
-# #####
-#
-# # Default to reducing along all dimensions
+
+#####
+##### Sum
+#####
+
+# Default to reducing along all dimensions
 # function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
 #     as = AxisSet(axes, N)
 #     node = Lib.op_sum(getpointer(x), as)
 #     return Node{T, N - length(axes)}(node)
 # end
-#
-# #####
-# ##### Tanh
-# #####
-#
+
+#####
+##### Tanh
+#####
+
 # Base.tanh(a::N) where {N <: Node} = N(Lib.op_tanh(getpointer(a)))
-#
-# #####
-# ##### Transpose
-# #####
+
+#####
+##### Transpose
+#####
 
 function Base.transpose(a::NodeTyped{T,N}) where {T,N}
     av = AxisVector(N:-1:1, N)
