@@ -10,7 +10,7 @@ using Flux, BenchmarkTools, Zygote
 ENV["OMP_NUM_THREADS"] = 1
 
 include("types.jl")
-#include("ops.jl")
+include("ops.jl")
 #include("loss.jl")
 #include("flux.jl")
 #include("backprop.jl")

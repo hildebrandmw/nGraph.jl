@@ -19,7 +19,7 @@ end
 
     # Just make sure that this works I guess.
     nGraph.Shape(dims)
-    nGraph.Shape(x)
+    nGraph.Shape([1,2,3])
 end
 
 @testset "Testing AbstractNode" begin
@@ -45,6 +45,21 @@ end
     p2 = nGraph.Node(x)
     @test p2 != param
     @test hash(p2) != hash(param)
+end
+
+@testset "Testing NFunction" begin
+    # First - just make sure the darn thing builds
+    A = rand(Float32, 2, 2)
+    x = nGraph.NodeTyped(A)
+    y = nGraph.NodeTyped(A)
+    z = x + y
+    @test isa(z, nGraph.NodeTyped{eltype(A), ndims(A)})
+
+    f = nGraph.NFunction(
+        nGraph.NodeVector((z,)),
+        nGraph.ParameterVector([x, y])
+    )
+    @test isa(f, nGraph.NFunction)
 end
 
 # @testset "Testing Elements" begin

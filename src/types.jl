@@ -31,10 +31,59 @@ const BACK = Dict{UInt,DataType}(
 end
 
 #####
-##### Shape
+##### Misc Types
 #####
 
-function Shape(itr::Tuple)
+function AxisSet(itr, ndims)
+    s = icxx"ngraph::AxisSet();"
+    for i in itr
+        # Remember to reverse dimensions
+        # This also performs the conversion to Index Zero
+        v = ndims - i
+        icxx"$s.insert($v);"
+    end
+    return s
+end
+
+function AxisVector(itr, ndims)
+    x = icxx"ngraph::AxisVector();"
+    for i in reverse(itr)
+        v = ndims - i
+        icxx"$x.push_back($v);"
+    end
+    return x
+end
+
+function CoordinateDiff(itr)
+    x = icxx"ngraph::CoordinateDiff();"
+    for i in itr
+        icxx"$x.push_back($i);"
+    end
+    return x
+end
+
+function NodeVector(itr)
+    x = icxx"ngraph::NodeVector();"
+    for i in itr
+        v = unwrap(i)
+        icxx"$x.push_back($v);"
+    end
+    return x
+end
+
+function ParameterVector(itr)
+    x = icxx"ngraph::ParameterVector();"
+    for i in itr
+        if description(i) != "Parameter"
+            throw(ArgumentError("Arguments to Parameter Vector must be Parameters"))
+        end
+        v = unwrap(i)
+        icxx"$x.push_back(std::dynamic_pointer_cast<ngraph::op::Parameter>($v));"
+    end
+    return x
+end
+
+function Shape(itr = ())
     x = icxx"ngraph::Shape(0);"
 
     # Need to reverse in order because C++ is row-major while Julia is column-major.
@@ -43,11 +92,13 @@ function Shape(itr::Tuple)
     end
     return x
 end
-Shape(x::AbstractArray) = Shape(size(x))
 
-function AxisSet(itr)
-    v = convert(cxxt"std::vector<size_t>", collect(itr))
-    return icxx"ngraph::AxisSet($v);"
+function Strides(itr)
+    x = icxx"ngraph::Strides();"
+    for i in itr
+        icxx"$(x).push_back($i);"
+    end
+    return x
 end
 
 #####
@@ -76,9 +127,23 @@ function NodeTyped(x::Node)
     T = julia_type(et)
     return NodeTyped{T,N}(x.obj)
 end
+NodeTyped(x::NodeCppType) = NodeTyped(Node(x))
 
 # Construction from Julia objects
-Node(x::AbstractArray{T}) where {T} = Node(@op Parameter(Element(T), Shape(x)))
+Node(x::AbstractArray{T}) where {T} = Node(@op Parameter(Element(T), Shape(size(x))))
+
+function NodeTyped{T,N}(x::AbstractArray{T,N}) where {T,N}
+    return NodeTyped{T,N}(@op Parameter(Element(T), Shape(size(x))))
+end
+NodeTyped{T}(x::AbstractArray{T,N}) where {T,N} = NodeTyped{T,N}(x)
+NodeTyped(x::AbstractArray{T,N}) where {T,N} = NodeTyped{T,N}(x)
+
+NodeTyped(x::T) where {T <: Number} = NodeTyped{T,0}(x)
+function NodeTyped{T,0}(x::T) where {T <: Number}
+    v = Array{T}(undef)
+    v[] = x
+    return NodeTyped(v)
+end
 
 # Array style arguments
 Base.ndims(x::Node) = convert(Int, icxx"$(x.obj)->get_shape().size();")
@@ -90,6 +155,7 @@ function Base.size(x::AbstractNode)
     dims = ntuple(i -> convert(UInt, icxx"$(shape).at($(i-1));"), nd)
     return convert.(Int, reverse(dims))
 end
+Base.size(x::AbstractNode, i::Integer) = size(x)[i]
 Base.length(x) = prod(size(x))
 
 Base.eltype(x::Node) = julia_type(icxx"$(x.obj)->get_element_type();")
@@ -168,11 +234,17 @@ end
 ##### Backend
 #####
 
-const BackendType = cxxt"ngraph::runtime::Backend"
+const BackendType = cxxt"std::unique_ptr<ngraph::runtime::Backend>"
 
 struct Backend{T <: AbstractBackendType}
     obj::BackendType
+
+    function nGraph.Backend{T}() where {T <: AbstractBackendType}
+        obj = icxx"ngraph::runtime::Backend::create($(string(T)));"
+        return new{T}(obj)
+    end
 end
+unwrap(x::Backend) = x.obj
 
 #####
 ##### TensorView
@@ -184,10 +256,46 @@ struct TensorView
     obj::TensorViewCppType
     backend::Backend
     parent::AbstractArray
+
+    function TensorView(backend::Backend{C}, v::AbstractArray{T,N}) where {C,T,N}
+
+        # This is kind of scary - we ... just have to make sure that the parent array
+        # doesn't get moved (i.e. resized ... )
+        vptr = Base.unsafe_convert(Ptr{Cvoid}, pointer(v))
+        backend_obj = unwrap(backend)
+        element = Element(T)
+        shape = Shape(size(v))
+
+        obj = icxx"$(backend_obj)->create_tensor($element, $shape, $vptr);"
+        return new(obj, backend, v)
+    end
 end
+
+function TensorView(backend, x::T) where {T <: Number}
+    v = Array{T}(undef)
+    v[] = x
+    return TensorView(backend, v)
+end
+unwrap(x::TensorView) = x.obj
 
 Base.parent(x::TensorView) = x.parent
 Base.collect(x::TensorView) = collect(parent(x))
+
+#####
+##### nGraph Function
+#####
+
+const nGraphFunctionCxxType = cxxt"std::shared_ptr<ngraph::Function>"
+mutable struct NFunction
+    obj::nGraphFunctionCxxType
+    callback::Any
+
+    function NFunction(nodes, parameters)
+        obj = icxx"std::make_shared<ngraph::Function>($nodes, $parameters);"
+        return new(obj, nothing)
+    end
+end
+unwrap(x::NFunction) = x.obj
 
 #=
 

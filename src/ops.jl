@@ -2,54 +2,48 @@
 # ##### Helper Functions
 # #####
 #
-# # Make the signature match the Flux signature
-# expand(N, i::Tuple) = i
-# expand(N, i::Integer) = ntuple(_ -> i, N)
-#
-# function expand(a::Node{T1}, b::Node{T2}) where {T1,T2}
-#     # Promote types if needed
-#     T3 = promote_type(T1, T2)
-#     a = convert_eltype(T3, a)
-#     b = convert_eltype(T3, b)
-#
-#     # Get the common axes for this object
-#     shape = map(last, Base.Broadcast.combine_axes(a, b))
-#
-#     # Make broadcasts if needed.
-#     a = (size(a) == shape) ? a : broadcast(a, shape)
-#     b = (size(b) == shape) ? b : broadcast(b, shape)
-#
-#     return a, b
-# end
-#
-# # Define _forward to allow dispatching to alternative implementations of common base
-# # operations
-# _forward(f) = f
-# _forward(::typeof(*)) = multiply
-# _forward(::typeof(NNlib.σ)) = _sigmoid
-# _forward(::typeof(/)) = divide
-#
-# Base.broadcasted(f, x::Node, y::Node) = _forward(f)(expand(x,y)...)
-# Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(expand(x, Node(y))...)
-# Base.broadcasted(f, x::AbstractArray, y::Node) = _forward(f)(expand(Node(x), y)...)
-# Base.broadcasted(f, x::Node) = _forward(f)(x)
-#
-# Base.broadcasted(f, x::Node{T}, y::Number) where {T} = _forward(f)(expand(x, Node{T}(convert(T, y)))...)
-# Base.broadcasted(f, x::Number, y::Node{T}) where {T} = _forward(f)(expand(Node{T}(convert(T, x)), y)...)
-#
-# Base.convert(::Type{Node{T,0}}, x::S) where {T,S <: Number} = Node{T,0}(convert(T, x))
-#
-# # Special case element-wise copy - this gets around an issue in Metalhead's ResNet
-# # implementation.
-# Base.broadcasted(::typeof(copy), x::Node) = x
+# Make the signature match the Flux signature
+expand(N, i::Tuple) = i
+expand(N, i::Integer) = ntuple(_ -> i, N)
+
+function expand(a::NodeTyped{T1}, b::NodeTyped{T2}) where {T1,T2}
+    # Promote types if needed
+    T3 = promote_type(T1, T2)
+    a = convert_eltype(T3, a)
+    b = convert_eltype(T3, b)
+
+    # Get the common axes for this object
+    shape = map(last, Base.Broadcast.combine_axes(a, b))
+
+    # Make broadcasts if needed.
+    a = (size(a) == shape) ? a : broadcast(a, shape)
+    b = (size(b) == shape) ? b : broadcast(b, shape)
+
+    return a, b
+end
+
+# Define _forward to allow dispatching to alternative implementations of common base
+# operations
+_forward(f) = f
+_forward(::typeof(*)) = multiply
+_forward(::typeof(NNlib.σ)) = _sigmoid
+_forward(::typeof(/)) = divide
+
+Base.broadcasted(f, x::NodeTyped, y::NodeTyped) = _forward(f)(expand(x,y)...)
+Base.broadcasted(f, x::NodeTyped, y) = _forward(f)(expand(x, NodeTyped(y))...)
+Base.broadcasted(f, x, y::NodeTyped) = _forward(f)(expand(NodeTyped(x), y)...)
+Base.broadcasted(f, x::NodeTyped) = _forward(f)(x)
+
+# Special case element-wise copy - this gets around an issue in Metalhead's ResNet
+# implementation.
+Base.broadcasted(::typeof(copy), x::NodeTyped) = x
 
 #####
 ##### Add
 #####
 
-#add(a::T, b::T) where {T <: NodeTyped} = N(Lib.op_add(getpointer(a), getpointer(b)))
 add(a::T, b::T) where {T <: NodeTyped} = T(@op Add(a, b))
-Base.:+(a::Node, b::Node) = add(a,b)
+Base.:+(a::NodeTyped, b::NodeTyped) = add(a,b)
 
 #####
 ##### AvgPool
@@ -66,11 +60,11 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #     return Node{T,N}(ptr)
 # end
 # Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
-#
-# #####
-# ##### BatchMatrixMultiply
-# #####
-#
+
+#####
+##### BatchMatrixMultiply
+#####
+
 # bmm(a::Node{T,N}, b::Node{T,N}; transpose_a = false, transpose_b = false) where {T,N} =
 #     Node(Lib.op_batchdot(getpointer(a), getpointer(b), transpose_a, transpose_b))
 #
@@ -86,121 +80,86 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #         convert(Float64, ϵ)
 #     ))
 # end
-#
-# #####
-# ##### Broadcast
-# #####
-#
-# _broadcast_trailing(M,N) = [i for i in (M+1):N]
-# function Base.broadcast(
-#         a::Node{T,M},
-#         shape::NTuple{N,Int};
-#         axes = _broadcast_trailing(M,N)
-#     ) where {T,M,N}
-#
-#     # Construct the final shape from `shape`
-#     final_shape = Shape(shape)
-#     axis_set = AxisSet(axes, N)
-#
-#     return Node{T,N}(Lib.op_broadcast(getpointer(a), final_shape, axis_set))
-# end
-_broadcast_trailing(M,N) = [i for i in (M+1):N]#
+
+#####
+##### Broadcast
+#####
+
+# TODO: Rework to make fully compliant with Base broadcasting.
+_broadcast_trailing(M,N) = [i for i in (M+1):N]
 function Base.broadcast(
-        x::NodeTyped{T,M}
+        x::NodeTyped{T,M},
         shape::NTuple{N,Int};
         axes = _broadcast_trailing(M,N)
    ) where {T,M,N}
 
     shape = Shape(shape)
-
+    axisset = AxisSet(axes, N)
+    return NodeTyped{T,N}(@op Broadcast(x, shape, axisset))
 end
-#
-# #####
-# ##### Concat
-# #####
-#
-# function concat(nodes::Vector{Node{T,N}}; dims::Integer = 1) where {T,N}
-#     # Flip dims for column -> row
-#     node = Lib.op_concat(NodeVector(nodes), N - dims)
-#     return Node{T,N}(node)
-# end
-#
-# Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
-#
-# #####
-# ##### Constants
-# #####
-#
-# constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
-# constant(x::AbstractArray{T,N}) where {T,N} =
-#     Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
-#
-# #####
-# ##### Convert
-# #####
-#
-# convert_eltype(::Type{T}, x::Node{T}) where {T} = x
-# convert_eltype(::Type{T}, x::Node) where {T} = Node(Lib.op_convert(getpointer(x), Element(T)))
-#
-# #####
-# ##### Convolution
-# #####
-#
-# function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 1) where {T,N}
-#     # Construct the convolution node.
-#     strides = Strides(expand(N-2, stride))
-#
-#     expand_pad = expand(2 * N, pad)
-#     padding_below = CoordinateDiff(expand_pad[1:2:length(expand_pad)])
-#     padding_above = CoordinateDiff(expand_pad[2:2:length(expand_pad)])
-#
-#     dilations = Strides(expand(N-2, dilation))
-#     node = Lib.op_convolution(
-#         getpointer(x),
-#         getpointer(w),
-#         strides,
-#         dilations,
-#         padding_above,
-#         padding_below
-#     )
-#
-#     return Node{T,N}(node)
-# end
-#
-# #####
-# ##### Deconvolution
-# #####
-#
-# function deconvolution(x::Node{T,N}, w::Node{T,N}, out_shape;
-#         stride = 1,
-#         pad = 0,
-#         dilation = 1
-#     ) where {T,N}
-#
-#     # see https://github.com/NervanaSystems/ngraph-mxnet-bridge/blob/master/src/ops/deconvolution.cc
-#     # for inspiration about how this thing came about.
-#     out_shape = Shape(out_shape)
-#     strides = Strides(expand(N-2, stride))
-#     padding = CoordinateDiff(expand(N-2, pad))
-#     dilations = Strides(expand(N-2, dilation))
-#     data_dilation = Strides(ntuple(i -> 1, N-2))
-#
-#     node = Node{T,N}(Lib.op_convolution_backprop_data(
-#         getpointer(out_shape),
-#         getpointer(w),
-#         getpointer(x),
-#         getpointer(strides),
-#         getpointer(dilations),
-#         getpointer(padding),
-#         getpointer(padding),
-#         getpointer(data_dilation),
-#     ))
-# end
-#
-# #####
-# ##### Divide
-# #####
-#
+
+#####
+##### Concat
+#####
+
+function Base.cat(x::NodeTyped{T,N}...; dims::Integer = 1) where {T,N}
+    return NodeTyped(@op Concat(NodeVector(x), N - dims))
+end
+
+#####
+##### Constants
+#####
+
+function constant(x::T) where {T}
+    v = convert(cxxt"std::vector<$T>", [x])
+    NodeTyped{T,0}(@op Constant(Element(T), Shape(), v))
+end
+
+function constant(x::AbstractArray{T,N}) where {T,N}
+    v = convert(cxxt"std::vector<$T>", reshape(x, :))
+    NodeTyped{T,N}(@op Constant(Element(T), Shape(size(x)), v))
+end
+
+#####
+##### Convert
+#####
+
+convert_eltype(::Type{T}, x::NodeTyped{T}) where {T} = x
+function convert_eltype(::Type{T}, x::NodeTyped{U,N}) where {T,U,N}
+    return NodeTyped{T,N}(@op Convert(x, Element(T)))
+end
+
+#####
+##### Convolution
+#####
+
+function NNlib.conv(x::NodeTyped{T,4}, w::NodeTyped{T,4}, ddims::NNlib.DenseConvDims) where {T}
+    # Check if we have to flip the weights
+    # nGraph's "convolution" is Flux's "cross-correlation" - so we have to reverse the usual
+    # flipping logic
+    if !NNlib.flipkernel(ddims)
+        w = reverse_axes(w, (1, 2))
+    end
+
+    # Now, translate this to ngraph
+    stride = Strides(NNlib.stride(ddims))
+    window_dilation = Strides(NNlib.dilation(ddims))
+
+    padding = NNlib.padding(ddims)
+    padding_below = CoordinateDiff(padding[range(1; step = 2, stop = length(padding))])
+    padding_above = CoordinateDiff(padding[range(2; step = 2, stop = length(padding))])
+
+
+    return NodeTyped{T,4}(
+        @op Convolution(x, w, stride, window_dilation, padding_below, padding_above)
+    )
+end
+
+
+#####
+##### Divide
+#####
+
 # divide(a::Node{T,N}, b::Node{T,N}) where {T,N} =
 #     Node{T,N}(Lib.op_divide(getpointer(a), getpointer(b)))
 #
@@ -366,16 +325,19 @@ end
 # parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Shape(())))
 # parameter(x::Node) = x
 #
-# #####
-# ##### permutedims
-# #####
-#
-# function Base.permutedims(x::N, perm) where {N <: Node}
-#     av = AxisVector(perm, length(perm))
-#     shape = Shape([size(x)[i] for i in perm])
-#     return N(Lib.op_reshape(getpointer(x), av, shape))
-# end
-#
+#####
+##### permutedims
+#####
+
+function Base.permutedims(x::T, permutation) where {T <: NodeTyped}
+    # Quick debug to make sure we're passing things along correctly.
+    @assert ndims(x) == length(permutation)
+    av = AxisVector(permutation, length(permutation))
+    sz = size(x)
+    shape = Shape([sz[i] for i in permutation])
+    return T(@op Reshape(x, av, shape))
+end
+
 # #####
 # ##### Power
 # #####
@@ -401,6 +363,12 @@ end
 #     node = Lib.op_reshape(getpointer(x), av, shape)
 #     return Node{T,M}(node)
 # end
+
+function reverse_axes(x::NodeTyped{T,N}, axes = ()) where {T,N}
+    axes = AxisSet(axes, N)
+    return NodeTyped{T,N}(@op Reverse(x, axes))
+end
+
 #
 # #####
 # ##### Result
@@ -457,14 +425,13 @@ end
 # #####
 # ##### Transpose
 # #####
-#
-# function Base.transpose(a::Node{T,N}) where {T,N}
-#     av = AxisVector(N:-1:1, N)
-#     shape = Shape(reverse(size(a)))
-#     node = Lib.op_reshape(getpointer(a), av, shape)
-#     return Node{T,N}(node)
-# end
-#
+
+function Base.transpose(a::NodeTyped{T,N}) where {T,N}
+    av = AxisVector(N:-1:1, N)
+    shape = Shape(reverse(size(a)))
+    return NodeTyped{T,N}(@op Reshape(a, av, shape))
+end
+
 # #######################################################################################
 # #
 # # Custom ops

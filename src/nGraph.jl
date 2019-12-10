@@ -18,9 +18,9 @@ export embedding
 using Dates
 
 ## Turn on CPU code generation by default.
-#function __init__()
-#    enable_codegen()
-#end
+function __init__()
+    enable_codegen()
+end
 
 const SRCDIR = @__DIR__
 const PKGDIR = dirname(SRCDIR)
@@ -38,8 +38,27 @@ abstract type AbstractBackendType end
 struct CPU <: AbstractBackendType end
 struct GPU <: AbstractBackendType end
 
+string(::Type{CPU}) = "CPU"
+string(::Type{GPU}) = "GPU"
+
 # For creating ngraph nodes
 unwrap(x) = x
+
+# ngraph likes its nodes as shared pointers.
+#
+# This macro essentially converts
+#
+# @op OpName(args...)
+#
+# into
+#
+# icxx"""
+#     auto node = std::make_shared<ngraph::op::$OpName>(args...);
+#     std::dynamic_pointer_cast<ngraph::Node>(node);
+# """
+#
+# All args will be passed through the `unwrap` function, so types like NodeTyped can be
+# passed directly and things will work.
 macro op(ex)
     @assert ex.head == :call
     op = first(ex.args)
@@ -68,6 +87,26 @@ if params["GPU"]
     include("cuarrays.jl")
 end
 
+# Hijack exception displaying
+#
+# We have to do some tricks with imports because the @exception macro isn't very robust.
+import Base: showerror
+const NGRAPH_ERRORS = [
+    cxxt"ngraph::ngraph_error&",
+    cxxt"ngraph::NodeValidationError&",
+]
+
+for err in NGRAPH_ERRORS
+    @eval Cxx.@exception function showerror(io::IO, e::$err)
+        try
+            @show e
+            print(io, unsafe_string(icxx"$e.what();"))
+        catch w
+            @show w
+        end
+    end
+end
+
 # Enable experimental operations
 const EXPERIMENTAL = true
 
@@ -90,9 +129,9 @@ include("env.jl")
 
 include("types.jl")
 include("ops.jl")
-#include("compile.jl")
-#
-#include("flux/flux.jl")
+include("compile.jl")
+
+include("flux/flux.jl")
 #include("models/resnet.jl")
 #include("models/test.jl")
 #include("embed_test.jl")

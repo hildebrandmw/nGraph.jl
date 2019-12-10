@@ -8,12 +8,12 @@ include("optimizers.jl")
 Cassette.@context SnoopCtx
 
 """
-    __register(x::Node) -> Nothing
+    __register(x::NodeTyped) -> Nothing
 
 By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers `x` as a
 hidden output of a ngraph function.
 """
-__register(x::Node) = nothing
+__register(x::NodeTyped) = nothing
 
 struct SnoopMeta
     # The Julia containers for the parameters of this network
@@ -42,7 +42,7 @@ SnoopMeta() = SnoopMeta(
 #####
 
 # Hijack Node constructors from Arrays
-function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::AbstractArray) where {T,N}
+function Cassette.overdub(ctx::SnoopCtx, f::Type{NodeTyped{T,N}}, x::AbstractArray) where {T,N}
     # Check if this array is a parameter - if so,make it an nGraph input.
     # Otherwise, make it a constant.
     if haskey(ctx.metadata.parameters, x)
@@ -52,17 +52,15 @@ function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::AbstractArray) w
         # Otherwise, we have to create one.
         node = get(ctx.metadata.param_to_node, x, nothing)
         if isnothing(node)
-            node = f(x)::Node{T,N}
+            node = f(x)::Node
 
             # Update internal data structures
             ctx.metadata.param_to_node[x] = node
             ctx.metadata.node_to_param[node] = x
             push!(ctx.metadata.primary, node)
-        else
-            @assert isa(node, Node{T,N})
         end
 
-        return node
+        return NodeTyped{T,N}(node)
     end
 
     # Otherwise, make this a constant
@@ -70,9 +68,9 @@ function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::AbstractArray) w
 end
 
 # Do not hijack creating nodes from nodes.
-Cassette.overdub(ctx::SnoopCtx, f::Type{<:Node}, x::Node) = f(x)
+Cassette.overdub(ctx::SnoopCtx, f::Type{<:NodeTyped}, x::NodeTyped) = f(x)
 
-Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) =
+Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::NodeTyped) =
     push!(ctx.metadata.secondary, x)
 
 # Get around Cassette bug with `reverse`
@@ -164,15 +162,15 @@ function snoop(f, args...)
     end
 
     # Extract the inputs
-    inputs = collect(Node.(args))
+    inputs = collect(NodeTyped.(args))
 
     # Perform traced execution on the function.
     outputs = collect(astuple(Cassette.overdub(ctx, f, inputs...)))
-    @assert all(x -> isa(x, Node), outputs)
+    @assert all(x -> isa(x, NodeTyped), outputs)
 
     return Trace(
-        inputs,
-        outputs,
+        Node.(inputs),
+        Node.(outputs),
         ctx.metadata.secondary,
         ctx.metadata.parameters,
         ctx.metadata.primary,
@@ -184,17 +182,29 @@ end
 
 function make(backend::Backend, trace, opt, opt_inputs, opt_outputs, mutator; kw...)
     # Create an nGraph Executable
-    ex = compile(
+    ex = ng_compile(
         backend,
-        ParameterVector(trace.inputs..., opt_inputs...),
-        NodeVector(trace.outputs..., trace.implicit_outputs..., opt_outputs...);
+        ParameterVector(Iterators.flatten((trace.inputs, opt_inputs))),
+        NodeVector(Iterators.flatten((trace.outputs, trace.implicit_outputs, opt_outputs)));
         kw...
     )
 
     # Create TensorViews for each of the inputs and outputs
     input_tensors = Tuple(TensorView.(Ref(backend), mutator.(trace.args)))
-    output_tensors = Tuple(TensorView.(Ref(backend), mutator.(trace.outputs)))
-    secondary_tensors = TensorView.(Ref(backend), mutator.(trace.implicit_outputs))
+
+    # Create arrays for each output tensor
+    output_arrays = map(trace.outputs) do node
+        T = eltype(node)
+        sz = size(node)
+        return Array{T}(undef, sz)
+    end
+    output_tensors = Tuple(TensorView.(Ref(backend), mutator.(output_arrays)))
+
+    if isempty(trace.implicit_outputs)
+        secondary_tensors = TensorView[]
+    else
+        secondary_tensors = TensorView.(Ref(backend), mutator.(trace.implicit_outputs))
+    end
 
     return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
 end
@@ -211,8 +221,8 @@ splat_inputs(fex::FluxExecutable) = Iterators.flatten((fex.inputs, getinputs(fex
 splat_outputs(fex::FluxExecutable) = Iterators.flatten((fex.outputs, fex.secondary, getoutputs(fex.optimizer)))
 
 function (ex::FluxExecutable)()
-    inputs = Any[getpointer(i) for i in splat_inputs(ex)]
-    outputs = Any[getpointer(o) for o in splat_outputs(ex)]
+    inputs = Any[unwrap(i) for i in splat_inputs(ex)]
+    outputs = Any[unwrap(o) for o in splat_outputs(ex)]
 
     # Since we're passing wrapped type to C++, we have to cast them to Any's which is
     # kind of gross - but w/e
