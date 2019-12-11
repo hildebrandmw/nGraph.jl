@@ -37,6 +37,20 @@ SnoopMeta() = SnoopMeta(
     Node[],
 )
 
+function getnode!(S::SnoopMeta, x)
+    node = get(S.param_to_node, x, nothing)
+    if isnothing(node)
+        node = f(x)::Node
+
+        # Update internal data structures
+        ctx.metadata.param_to_node[x] = node
+        ctx.metadata.node_to_param[node] = x
+        push!(ctx.metadata.primary, node)
+    end
+
+    return NodeTyped(node)
+end
+
 #####
 ##### Cassette Overdubs
 #####
@@ -50,17 +64,7 @@ function Cassette.overdub(ctx::SnoopCtx, f::Type{NodeTyped{T,N}}, x::AbstractArr
         # If so, just return that.
         #
         # Otherwise, we have to create one.
-        node = get(ctx.metadata.param_to_node, x, nothing)
-        if isnothing(node)
-            node = f(x)::Node
-
-            # Update internal data structures
-            ctx.metadata.param_to_node[x] = node
-            ctx.metadata.node_to_param[node] = x
-            push!(ctx.metadata.primary, node)
-        end
-
-        return NodeTyped{T,N}(node)
+        return getnode!(ctx.metadata, x)::NodeTyped{T,N}
     end
 
     # Otherwise, make this a constant
@@ -88,6 +92,22 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.CrossCor, args...) =
 
 Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
+
+# The implementation of Conv reshapes the bias before the broadcasting addition.
+# So, lets hijack reshape to test if one of our parameters is being passed as an argument
+# and convert it to a Node right away.
+function Cassette.overdub(ctx::SnoopCtx, f::reshape, x::AbstractArray, args...)
+    if haskey(ctx.metadata.parameters, x)
+        return Cassette.overdub(ctx, f, getnode!(ctx.metadata, x), args...)
+    else
+        return Cassette.recurse(ctx, f, x, args...)
+    end
+end
+
+# Don't hijack nodes passed into `reshape`
+function Cassette.overdub(ctx::SnoopCtx, f::reshape, x::NodeTyped, args...)
+    return Cassette.recurse(ctx, f, x, args...)
+end
 
 # Skip recursing initialization calls - recursing turns out to take a very, very long time.
 Cassette.overdub(ctx::SnoopCtx, f::typeof(rand), args...) = f(args...)

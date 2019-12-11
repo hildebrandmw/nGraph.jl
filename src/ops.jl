@@ -26,7 +26,7 @@ end
 # operations
 _forward(f) = f
 _forward(::typeof(*)) = multiply
-_forward(::typeof(NNlib.σ)) = _sigmoid
+_forward(::typeof(NNlib.σ)) = sigmoid
 _forward(::typeof(/)) = divide
 
 Base.broadcasted(f, x::NodeTyped, y::NodeTyped) = _forward(f)(expand(x,y)...)
@@ -37,6 +37,9 @@ Base.broadcasted(f, x::NodeTyped) = _forward(f)(x)
 # Special case element-wise copy - this gets around an issue in Metalhead's ResNet
 # implementation.
 Base.broadcasted(::typeof(copy), x::NodeTyped) = x
+
+############################################################################################
+# Here, we do the actual definitions of the ops.
 
 #####
 ##### Add
@@ -65,21 +68,27 @@ Base.:+(a::NodeTyped, b::NodeTyped) = add(a,b)
 ##### BatchMatrixMultiply
 #####
 
-# bmm(a::Node{T,N}, b::Node{T,N}; transpose_a = false, transpose_b = false) where {T,N} =
-#     Node(Lib.op_batchdot(getpointer(a), getpointer(b), transpose_a, transpose_b))
-#
-# #####
-# ##### BatchNorm
-# #####
-#
-# function batchnorm_training(input::Node, γ::Node, β::Node, ϵ)
-#     return Node(Lib.op_batchnorm_training(
-#         getpointer(input),
-#         getpointer(γ),
-#         getpointer(β),
-#         convert(Float64, ϵ)
-#     ))
-# end
+bmm(A::T, B::T) where {T <: Node} = T(@op BatchDot(a, b, false, false))
+
+#####
+##### BatchNorm
+#####
+
+function batchnorm_training(BN::Flux.BatchNorm, x::NodeTyped)
+    # Extract parameters from BN
+    λ = NodeTyped(BN.λ)
+    β = NodeTyped(BN.β)
+    γ = NodeTyped(BN.γ)
+    node = NodeTyped(@op BatchNormTraining(x, γ, β))
+
+    # When running under the compiler, this register will make these outputs implicit outputs
+    # of the nGraph network.
+    #
+    # Without this, I've seen mysterious segaults
+    __register(getoutput(node, 2))
+    __register(getoutput(node, 3))
+    return λ(getoutput(node, 1))
+end
 
 #####
 ##### Broadcast
@@ -213,20 +222,20 @@ Base.://(a::NodeTyped{T,0}, b::NodeTyped{T,0}) where {T} = divide(a, b)
 ##### GetOutput
 #####
 
-# get_output_element(x::Node, n) = Node(Lib.op_get_output_element(getpointer(x), convert(UInt, n-1)))
+getoutput(x::NodeTyped, n) = NodeTyped(@op GetOutputElement(x, convert(UInt, n-1)))
 
 #####
 ##### Log
 #####
 
-# Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(getpointer(a)))
+Base.log(x::T) where {T <: NodeTyped} = T(@op Log(x))
 
 #####
 ##### Max
 #####
 
 # # The semantics between max and maximum are flipped around beween Julia and nGraph
-# Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(getpointer(a), getpointer(b)))
+Base.max(a::T, b::T) where {T <: Node} = T(@op Maximum(a, b))
 
 #####
 ##### MaxPool
@@ -329,14 +338,14 @@ end
 ##### Power
 #####
 
-# power(a::N, b::N) where {N <: Node} = N(Lib.op_parameter(getpointer(a), getpointer(b)))
-# Base.:^(a::N, b::N) where {N <: Node} = power(a, b)
+power(a::T, b::T) where {T <: NodeTyped} = T(@op Power(a, b))
+Base.:^(a::T, b::T) where {T <: NodeTyped} = power(a, b)
 
 #####
 ##### Relu
 #####
 
-# Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(getpointer(a)))
+Flux.relu(a::T) where {T <: NodeTyped} = T(@op Relu(a))
 
 #####
 ##### Reshape
@@ -364,13 +373,13 @@ end
 ##### Result
 #####
 
-# result(x::T) where {T <: Node} = T(Lib.op_result(getpointer(x)))
+result(x::T) where {T <: NodeTyped} = T(@op Result(x))
 
 #####
 ##### Sigmoid
 #####
 
-# _sigmoid(x::N) where {N <: Node} = N(Lib.op_sigmoid(getpointer(x)))
+Flux.sigmoid(x::T) where {T <: NodeTyped} = T(@op Sigmoid(x))
 
 #####
 ##### Softmax
@@ -386,14 +395,14 @@ end
 ##### Sqrt
 #####
 
-# Base.sqrt(x::N) where {N <: Node} = N(Lib.op_sqrt(getpointer(x)))
+Base.sqrt(x::T) where {T <: NodeTyped} = T(@op Sqrt(x))
 
 #####
 ##### Subtract
 #####
 
-# subtract(a::N, b::N) where {N <: Node} = N(Lib.op_subtract(getpointer(a), getpointer(b)))
-# Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
+subtract(a::T, b::T) where {T <: NodeTyped} = T(@op Subtract(a, b))
+Base.:-(a::T, b::T) where {T <: NodeTyped} = subtract(a, b)
 
 #####
 ##### Sum
@@ -410,7 +419,7 @@ end
 ##### Tanh
 #####
 
-# Base.tanh(a::N) where {N <: Node} = N(Lib.op_tanh(getpointer(a)))
+Base.tanh(x::T) where {T <: Node} = T(@op Tanh(x))
 
 #####
 ##### Transpose

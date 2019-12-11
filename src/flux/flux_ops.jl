@@ -1,30 +1,3 @@
-# Because julia-vim and YouCompleteMe don't get along
-_getsigma(x) = x.σ
-
-_dims(c::Flux.Conv{N}) where {N} = N
-_dims(c::Flux.CrossCor{N}) where {N} = N
-
-function _conv_impl(c, x::Node)
-    N = _dims(c)
-
-    # We flip standard arrays since nGraph really perform cross-correlation
-    n = Node(c.weight)
-    cn = NNlib.conv(
-        x,
-        n;
-        stride = reverse(c.stride),
-        pad = reverse(c.pad),
-        dilation = reverse(c.dilation)
-    )
-
-    # Broadcast the bias along the first `N` dimensions and the last
-    axis_set = [collect(1:N); N+2]
-    bb = broadcast(Node(c.bias), size(cn); axes = axis_set)
-
-    node = _getsigma(c).(cn .+ bb)
-    return node
-end
-
 # Again, getting around a Cassette issue
 _dense_impl(d::Flux.Dense, x::Node) = (d.σ).(d.W * x .+ d.b)
 
@@ -52,12 +25,3 @@ function _batchnorm_impl(BN::Flux.BatchNorm, x::Node)
 
     return BN.λ.(a)
 end
-
-# Need to flip the convolution kernels
-# NOTE: nGraph's "convolution" is NNlib's crosscorrelation
-#
-# Need to flip the W and H dimensions of the filters
-function flip!(x::AbstractArray{T,N}) where {T,N}
-    x .= view(x, size(x, 1):-1:1, size(x, 2):-1:1, ntuple(_->:, N-2)...)
-end
-
