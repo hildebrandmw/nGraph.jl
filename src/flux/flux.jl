@@ -110,7 +110,6 @@ function compile(
         f,
         args...;
         optimizer = Inference,
-        mutator = identity,
         kw...
     )
 
@@ -118,10 +117,10 @@ function compile(
     trace = snoop(f, args...)
 
     # build the optimizer and get the implicit input and output parameters
-    opt, opt_inputs, opt_outputs = apply!(mutator, backend, optimizer, trace)
+    opt, opt_inputs, opt_outputs = apply!(backend, optimizer, trace)
 
     # pass the trace as well as the optimizer arguments to create the executable.
-    return make(backend, trace, opt, opt_inputs, opt_outputs, mutator; kw...)
+    return make(backend, trace, opt, opt_inputs, opt_outputs; kw...)
 end
 
 """
@@ -182,7 +181,7 @@ function snoop(f, args...)
     )
 end
 
-function make(backend::Backend, trace, opt, opt_inputs, opt_outputs, mutator; kw...)
+function make(backend::Backend, trace, request, opt_inputs, opt_outputs; kw...)
     # Create an nGraph Executable
     ex = compile(
         backend,
@@ -192,9 +191,12 @@ function make(backend::Backend, trace, opt, opt_inputs, opt_outputs, mutator; kw
     )
 
     # Create TensorViews for each of the inputs and outputs
-    input_tensors = Tuple(TensorView.(Ref(backend), mutator.(trace.args)))
-    output_tensors = Tuple(TensorView.(Ref(backend), mutator.(trace.outputs)))
-    secondary_tensors = TensorView.(Ref(backend), mutator.(trace.implicit_outputs))
+    input_tensors = Tuple(TensorView.(Ref(backend), trace.args))
+    output_tensors = Tuple(TensorView.(Ref(backend), trace.outputs))
+    secondary_tensors = TensorView.(Ref(backend), trace.implicit_outputs)
+
+    # Instantiate to optimizer, including its Tensor Views
+    opt = fulfill(backend, request)
 
     return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
 end

@@ -30,11 +30,12 @@ struct CPU <: AbstractBackendType end
 struct GPU <: AbstractBackendType end
 
 # Check if GPU is required. If so, bring in the GPU code
-params = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
-if params["GPU"]
-    @info "Including CUDA Arrays"
-    include("cuarrays.jl")
-end
+include("cuarrays.jl")
+#params = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
+#if params["GPU"]
+#    @info "Including CUDA Arrays"
+#    include("cuarrays.jl")
+#end
 
 # Enable experimental operations
 const EXPERIMENTAL = true

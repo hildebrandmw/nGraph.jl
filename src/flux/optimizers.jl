@@ -1,3 +1,25 @@
+# Use this as a means of delaying actual allocation of the input and output tensors until
+# after ngraph has done its large single allocation.
+const ALLOCATIONS = Ref{Int}(0)
+struct AllocationRequest{F,T,V}
+    arrays::T
+    args::V
+end
+
+AllocationRequest(::Type{F}, arrays...) where {F} = AllocationRequest(F, (), arrays...)
+function AllocationRequest(::Type{F}, args::Tuple, arrays...) where {F} 
+    return AllocationRequest{F, typeof(arrays), typeof(args)}(arrays, args)
+end
+
+function fulfill(backend, x::AllocationRequest{F}) where {F}
+    # Go through all of the arrays - make TensorViews of them.
+    views = map(x.arrays) do arg
+        return [TensorView(backend, a) for a in arg]
+    end
+
+    return F(views..., x.args...)
+end
+
 #####
 ##### Optimizers
 #####
@@ -6,10 +28,9 @@ struct Inference
     tensors::Vector{TensorView}
 end
 
-function apply!(f, backend::Backend, ::Type{Inference}, trace)
-    # Wrap all of the parameters in a TensorView.
-    tensors = [TensorView(backend, trace.node_to_param[p]) for p in trace.parameter_nodes]
-    return Inference(tensors), trace.parameter_nodes, ()
+function apply!(backend::Backend, ::Type{Inference}, trace)
+    params = [trace.node_to_param[p] for p in trace.parameter_nodes]
+    return AllocationRequest(Inference, params), trace.parameter_nodes, ()
 end
 
 getinputs(I::Inference) = I.tensors
@@ -97,9 +118,10 @@ mutable struct SGDState
     outputs::Vector{TensorView}
 end
 
-function apply!(f, backend::Backend, sgd::SGD, trace)
+function apply!(backend::Backend, sgd::SGD, trace)
     # Unpack `trace` arguments
     parameter_nodes = trace.parameter_nodes
+    @info "Found $(length(parameter_nodes)) Parameters"
 
     # Create backprop nodes for each parameters.
     adjoints = make_adjoints(first(trace.outputs), -constant(sgd.learning_rate))
@@ -111,19 +133,11 @@ function apply!(f, backend::Backend, sgd::SGD, trace)
     end
 
     # Wrap the input parameters in a TensorView
-    parameter_tensors = map(parameter_nodes) do node
-        data = trace.node_to_param[node]
-        return TensorView(backend, f(data))
-    end
+    parameters = [trace.node_to_param[n] for n in parameter_nodes]
+    updates = [copy(trace.node_to_param[n]) for n in parameter_nodes]
 
-    # Copy the input arrays to achieve double buffering.
-    update_tensors = map(parameter_nodes) do node
-        data = trace.node_to_param[node]
-        return TensorView(backend, f(copy(data)))
-    end
-
-    state = SGDState(parameter_tensors, update_tensors)
-    return state, parameter_nodes, update_nodes
+    request = AllocationRequest(SGDState, parameters, updates)
+    return request, parameter_nodes, update_nodes
 end
 
 getinputs(S::SGDState) = S.inputs
