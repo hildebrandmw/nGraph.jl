@@ -1,3 +1,5 @@
+# NOTE: Don't hold a reference to the backend nGraph types because Cxx likes to destroy them
+# when exiting Julia - which causes a segfault.
 const NAMEMAP = (
     Bool => "boolean",
     Float32 => "f32",
@@ -107,6 +109,7 @@ end
 
 # Could make this an AbstractArray - but I think I'll try not doing that ...
 const NodeCppType = cxxt"std::shared_ptr<ngraph::Node>"
+Base.ndims(x::NodeCppType) = icxx"$(x)->get_shape().size();"
 
 # Define a typed and untyped version of the same thing.
 struct Node
@@ -117,6 +120,9 @@ end
 struct NodeTyped{T,N} <: AbstractArray{T,N}
     obj::NodeCppType
 end
+Base.show(io::IO, x::NodeTyped{T,N}) where {T,N} = println(io, "NodeTyped{$T, $N} - $(name(x))")
+Base.display(x::NodeTyped) = show(stdout, x)
+NodeTyped{T}(obj::NodeCppType) where {T} = NodeTyped{T,ndims(obj)}(obj)
 
 const NodeLike = Union{Node, <:NodeTyped}
 unwrap(x::NodeLike) = x.obj
@@ -148,7 +154,7 @@ function NodeTyped{T,0}(x::T) where {T <: Number}
 end
 
 # Array style arguments
-Base.ndims(x::Node) = convert(Int, icxx"$(x.obj)->get_shape().size();")
+Base.ndims(x::Node) = convert(Int, ndims(unwrap(x)))
 Base.ndims(::NodeTyped{T,N}) where {T,N} = N
 
 function Base.size(x::NodeLike)

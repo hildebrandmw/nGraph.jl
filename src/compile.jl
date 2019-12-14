@@ -1,7 +1,8 @@
-# Some tuple utilities
+# Wrap an item in a tuple.
 astuple(x::Tuple) = x
 astuple(x) = (x,)
 
+# Just unwrap a length-one tuple.
 untuple(x::Tuple) = x
 untuple(x::Tuple{T}) where {T} = first(x)
 
@@ -10,12 +11,17 @@ untuple(x::Tuple{T}) where {T} = first(x)
 #####
 
 const ExecutableCxxType = cxxt"std::shared_ptr<ngraph::runtime::Executable>"
-mutable struct Executable{T}
+mutable struct Executable{T <: AbstractBackendType}
     obj::ExecutableCxxType
     ngraph_function::NFunction
     backend::Backend{T}
 
-    function Executable(obj, ngraph_function::NFunction, backend::Backend{T}) where {T}
+    function Executable(
+                obj::ExecutableCxxType,
+                ngraph_function::NFunction, 
+                backend::Backend{T},
+            ) where {T <: AbstractBackendType}
+
         ex = new{T}(obj, ngraph_function, backend)
 
         # Immediately clear this from the saved functions
@@ -64,9 +70,9 @@ end
 #    Lib.set_jl_callback(getpointer(f), Base.unsafe_convert(Ptr{Cvoid}, CB))
 #    @debug Lib.get_jl_callback(getpointer(f))
 #end
-#
-#(ex::Executable)(inputs::Vector{Any}, outputs::Vector{Any}) = Lib.call(getpointer(ex), outputs, inputs)
 
+# TODO: Prevonversion to `runtime::Tensor` to avoid this creation step?
+# NOTE: The underlying data isn't really copied around - just the pointers.
 function (ex::Executable)(inputs, outputs)
     i = convert(cxxt"std::vector<std::shared_ptr<ngraph::runtime::Tensor>>", inputs)
     o = convert(cxxt"std::vector<std::shared_ptr<ngraph::runtime::Tensor>>", outputs)
@@ -78,12 +84,12 @@ end
 ##### Extract performance data
 #####
 
-"""
-    get_performance(ex::Executable) -> Dict{String,Int}
-
-Return the runtime in microseconds of each kernel in `ex` as a dictionary keyed by kernel
-name.
-"""
+# """
+#     get_performance(ex::Executable) -> Dict{String,Int}
+# 
+# Return the runtime in microseconds of each kernel in `ex` as a dictionary keyed by kernel
+# name.
+# """
 # function get_performance(ex::Executable)
 #     # Construct a PerfCounterTranslator
 #     translator = Lib.PerfCounterTranslator(getpointer(ex))

@@ -1,6 +1,16 @@
 using Flux
 using NNlib
 
+macro dotest(backend, f, args...)
+    backend = esc(backend)
+    f = esc(f)
+    args = esc.(args)
+    return quote
+        F = nGraph.compile($backend, $(f), $(args...))
+        @test isapprox(parent(F()), $(f)($(args...)))
+    end
+end
+
 # The order of the operations are is determined roughly in the order of implemntation.
 # This is to make sure "lower-level" funcitonality is working before higher level functionality.
 #
@@ -116,9 +126,7 @@ using NNlib
 
     A = rand(Float32, 3, 3, 16, 16)
     f = x -> permutedims(x, (2, 1, 3, 4))
-
-    F = nGraph.compile(backend, f, A)
-    @test parent(F()) == f(A)
+    @dotest backend f A
 
     #####
     ##### Reverse
@@ -144,8 +152,7 @@ using NNlib
 
     for ax in axes
         f = x -> nGraph.reverse_axes(x, ax)
-        F = nGraph.compile(backend, f, A)
-        @test parent(F()) == f(A)
+        @dotest backend f A
     end
 
     #####
@@ -178,8 +185,7 @@ using NNlib
         )
 
         f = (x, w) -> NNlib.conv(x, w, dims)
-        F = nGraph.compile(backend, f, x, w)
-        @test isapprox(parent(F()), f(x, w))
+        @dotest backend f x w
     end
 
     #####
@@ -190,20 +196,19 @@ using NNlib
     A = rand(Float32, 2, 2)
     B = rand(Float32, 2, 2)
     f = (a, b) -> a ./ b
-    F = nGraph.compile(backend, f, A, B)
-    @test parent(F()) == f(A, B)
+    @dotest backend f A B
 
     # Scalar division
     A = 1
     B = 2
-    F = nGraph.compile(backend, /, A, B)
+    F = nGraph.compile(backend, /, Float32(A), Float32(B))
     @test parent(F())[] == A / B
 
-    F = nGraph.compile(backend, //, A, B)
+    F = nGraph.compile(backend, //, Float32(A), Float32(B))
     @test parent(F())[] == A // B
 
-    f = x -> x / 2
-    F = nGraph.compile(backend, f, A)
+    f = x -> x / Float32(2)
+    F = nGraph.compile(backend, f, Float32(A))
     @test parent(F())[] == f(A)
 
     #####
@@ -212,23 +217,151 @@ using NNlib
 
     A = rand(Float32, 100)
     f = x -> reshape(x, 1, :)
-    F = nGraph.compile(backend, f, A)
-    @test parent(F()) == f(A)
+    @dotest backend f A
 
     A = rand(Float32, 2, 2, 2)
     f = x -> reshape(x, :)
-    F = nGraph.compile(backend, f, A)
-    @test parent(F()) == f(A)
+    @dotest backend f A
 
     A = rand(Float32, 3, 2, 1)
     f = x -> reshape(x, 1, 2, 3)
-    F = nGraph.compile(backend, f, A)
-    @test parent(F()) == f(A)
+    @dotest backend f A
 
     # More extravagent reshape
     A = rand(Float32, 1, 2, 3, 4, 5, 6)
     f = x -> reshape(x, 6, 5, :, 3, 2)
-    F = nGraph.compile(backend, f, A)
-    @test parent(F()) == f(A)
+    @dotest backend f A
+
+    #####
+    ##### Log
+    #####
+    
+    A = rand(Float32, 2, 2) 
+    f = x -> log.(x)
+    @dotest backend f A
+
+    #####
+    ##### Max
+    #####
+    
+    A = rand(Float32, 2, 2)
+    B = rand(Float32, 2, 2)
+
+    f = (x, y) -> max.(x, y)
+    @dotest backend f A B
+
+    #####
+    ##### Min
+    #####
+    
+    A = rand(Float32, 2, 2)
+    B = rand(Float32, 2, 2)
+
+    f = (x, y) -> min.(x, y)
+    @dotest backend f A B
+
+    #####
+    ##### Relu
+    #####
+    
+    A = rand(Float32, 2, 2) 
+    f = x -> Flux.relu.(x)
+    @dotest backend f A
+
+    #####
+    ##### Sigmoid
+    #####
+    
+    A = rand(Float32, 2, 2)
+    f = x -> Flux.σ.(x)
+    @dotest backend f A
+
+    #####
+    ##### Sqrt
+    #####
+    
+    A = rand(Float32, 2, 2)
+    f = x -> sqrt.(x)
+    @dotest backend f A
+
+    #####
+    ##### Tanh
+    #####
+    
+    A = rand(Float32, 2, 2)
+    f = x -> tanh.(x)
+    @dotest backend f A
+
+    #####
+    ##### Subtract
+    #####
+
+    A = rand(Float32, 2, 2)
+    B = rand(Float32, 2, 2)
+
+    f = (x, y) -> x .- y
+    @dotest backend f A B
+
+    #####
+    ##### Negative
+    #####
+    
+    A = rand(Float32, 2, 2)
+    f = x -> -x
+    @dotest backend f A
+
+    g(x) = -x
+    f = x -> g.(x)
+    @dotest backend f A
+
+    #####
+    ##### Power
+    #####
+    
+    A = rand(Float32, 2, 2)
+    B = rand(Float32)
+    f = (x, y) -> x .^ y
+    @dotest backend f A B
+
+    #####
+    ##### Softmax
+    #####
+    
+    A = rand(Float32, 5, 5)
+    f = x -> NNlib.softmax(x)
+    @dotest backend f A
+
+    f = x -> NNlib.softmax(reshape(x, :))
+    @dotest backend f A
+
+    #####
+    ##### Dot
+    #####
+    
+    # Do a series of right and left multiplication.
+    cA = rand(Float32, 2, 2) 
+    cB = rand(Float32, 2)
+
+    A = rand(Float32, 2, 2)
+    B = rand(Float32, 2, 2)
+    C = rand(Float32, 2)
+    D = rand(Float32, 1, 2)
+
+    # Test ambiguity resolution
+    f = x -> x * cA
+    @dotest backend f A
+
+    f = x -> x * cB
+    @dotest backend f A
+
+    f = x -> cA * x
+    @dotest backend f A
+
+    # Just general multiplication
+    f = (x, y) -> x * y
+    @dotest backend f A B
+    @dotest backend f A C
+    @dotest backend f D A
+    @dotest backend f D C
 end
 

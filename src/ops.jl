@@ -25,9 +25,10 @@ end
 # Define _forward to allow dispatching to alternative implementations of common base
 # operations
 _forward(f) = f
-_forward(::typeof(*)) = multiply
+_forward(::typeof(*))       = multiply
 _forward(::typeof(NNlib.σ)) = sigmoid
-_forward(::typeof(/)) = divide
+_forward(::typeof(/))       = divide
+_forward(::typeof(//))      = divide
 
 Base.broadcasted(f, x::NodeTyped, y::NodeTyped) = _forward(f)(expand(x,y)...)
 Base.broadcasted(f, x::NodeTyped, y) = _forward(f)(expand(x, NodeTyped(y))...)
@@ -68,7 +69,7 @@ Base.:+(a::NodeTyped, b::NodeTyped) = add(a,b)
 ##### BatchMatrixMultiply
 #####
 
-bmm(A::T, B::T) where {T <: Node} = T(@op BatchDot(a, b, false, false))
+bmm(A::T, B::T) where {T <: NodeTyped} = T(@op BatchDot(a, b, false, false))
 
 #####
 ##### BatchNorm
@@ -95,12 +96,12 @@ end
 #####
 
 # TODO: Rework to make fully compliant with Base broadcasting.
-_broadcast_trailing(M,N) = [i for i in (M+1):N]
+_trailing(M,N) = (M+1):N
 function Base.broadcast(
         x::NodeTyped{T,M},
         shape::NTuple{N,Int};
-        axes = _broadcast_trailing(M,N)
-   ) where {T,M,N}
+        axes = _trailing(M,N)
+    ) where {T,M,N}
 
     shape = Shape(shape)
     axisset = AxisSet(axes, N)
@@ -179,25 +180,26 @@ Base.://(a::NodeTyped{T,0}, b::NodeTyped{T,0}) where {T} = divide(a, b)
 ##### Dot
 #####
 
-# Reverse the order in the call to `Lib.op_dot` to account for row major/col major
+# Reverse the order in the call to `@op Dot` to account for row major/col major
 # differences
-# dot(a::Node{T}, b::Node{T}, n) where {T,N,M} =
-#     Node(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
-#
-# Fully Connected
-# Base.:*(w::Node, x::Node) = dot(w, x, 1)
+function dot(w::NodeTyped{T}, x::NodeTyped{T}, n) where {T} 
+    return NodeTyped{T}(@op Dot(x, w, convert(UInt, n)))
+end
 
-# Base.:*(w::Node, x::AbstractArray) = w * Node(x)
-# Base.:*(w::AbstractArray, x::Node) = Node(w) * x
+# Fully Connected
+Base.:*(w::NodeTyped, x::NodeTyped) = dot(w, x, 1)
+
+Base.:*(w::NodeTyped, x::AbstractArray) = w * NodeTyped(x)
+Base.:*(w::AbstractArray, x::NodeTyped) = NodeTyped(w) * x
 
 # Methods defined to avoid method ambiguity in julia's dispatch
-# Base.:*(x::Node{T,2}, y::Node{T,2}) where {T} = dot(x, y, 1)
-# Base.:*(x::Node{T,2}, y::Node{T,1}) where {T} = dot(x, y, 1)
+Base.:*(x::NodeTyped{T,2}, y::NodeTyped{T,2}) where {T} = dot(x, y, 1)
+Base.:*(x::NodeTyped{T,2}, y::NodeTyped{T,1}) where {T} = dot(x, y, 1)
 
-# Base.:*(x::AbstractArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
-# Base.:*(x::AbstractArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
-# Base.:*(x::Node{T,1}, y::AbstractArray{T,2}) where {T} = x * Node(y)
-# Base.:*(x::Node{T,2}, y::AbstractArray{T,2}) where {T} = x * Node(y)
+Base.:*(x::AbstractArray{T,2}, y::NodeTyped{T,1}) where {T} = NodeTyped(x) * y
+Base.:*(x::AbstractArray{T,2}, y::NodeTyped{T,2}) where {T} = NodeTyped(x) * y
+Base.:*(x::NodeTyped{T,2}, y::AbstractArray{T,2}) where {T} = x * NodeTyped(y)
+Base.:*(x::NodeTyped{T,2}, y::AbstractArray{T,1}) where {T} = x * NodeTyped(y)
 
 #####
 ##### Indexing
@@ -235,7 +237,7 @@ Base.log(x::T) where {T <: NodeTyped} = T(@op Log(x))
 #####
 
 # # The semantics between max and maximum are flipped around beween Julia and nGraph
-Base.max(a::T, b::T) where {T <: Node} = T(@op Maximum(a, b))
+Base.max(a::T, b::T) where {T <: NodeTyped} = T(@op Maximum(a, b))
 
 #####
 ##### MaxPool
@@ -283,17 +285,15 @@ Base.max(a::T, b::T) where {T <: Node} = T(@op Maximum(a, b))
 ##### Minimum
 #####
 
-# The `min` and `minimum` semantics are swapped between Julia and nGraph.
-# Base.minimum(a::N, b::N) where {N <: Node} = N(Lib.op_minimum(getpointer(a), getpointer(b)))
-# _forward(::typeof(min)) = minimum
+# Node: the `min` and `minimum` semantics are swapped between Julia and nGraph.
+Base.min(a::T, b::T) where {T <: NodeTyped} = T(@op Minimum(a, b))
 
 #####
 ##### Negative
 #####
 
-# negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(getpointer(a)))
-
-# Base.:-(a::Node) = negative(a)
+negative(a::T) where {T <: NodeTyped} = T(@op Negative(a))
+Base.:-(a::NodeTyped) = negative(a)
 
 #####
 ##### One Hot
@@ -385,11 +385,10 @@ Flux.sigmoid(x::T) where {T <: NodeTyped} = T(@op Sigmoid(x))
 ##### Softmax
 #####
 
-# function Flux.softmax(x::Node{T,N}; axes = 1) where {T,N}
-#     av = AxisSet(axes, N)
-#     node = Lib.op_softmax(getpointer(x), av)
-#     return Node{T,N}(node)
-# end
+function NNlib.softmax(x::NodeTyped{T,N}; dims = 1) where {T,N}
+    as = AxisSet(dims, N)
+    return NodeTyped{T}(@op Softmax(x, as))
+end
 
 #####
 ##### Sqrt
@@ -409,17 +408,16 @@ Base.:-(a::T, b::T) where {T <: NodeTyped} = subtract(a, b)
 #####
 
 # Default to reducing along all dimensions
-# function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
-#     as = AxisSet(axes, N)
-#     node = Lib.op_sum(getpointer(x), as)
-#     return Node{T, N - length(axes)}(node)
-# end
+function Base.sum(x::U; axes = 1:N) where {U <: NodeTyped{T} where {T}}
+    as = AxisSet(axes, N)
+    return NodeTyped{T}(@op Sum(x, as))
+end
 
 #####
 ##### Tanh
 #####
 
-Base.tanh(x::T) where {T <: Node} = T(@op Tanh(x))
+Base.tanh(x::T) where {T <: NodeTyped} = T(@op Tanh(x))
 
 #####
 ##### Transpose

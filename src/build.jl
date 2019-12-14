@@ -1,8 +1,7 @@
 # Build options
-
 const DEFAULTS = (
     # Build nGraph with PMDK
-    PMDK = EXPERIMENTAL,
+    PMDK = false,
     GPU = false,
     # Build nGraph in debug mode
     DEBUG = false,

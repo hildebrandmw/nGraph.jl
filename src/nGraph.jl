@@ -80,12 +80,7 @@ macro op(ex)
     end
 end
 
-# Check if GPU is required. If so, bring in the GPU code
-params = JSON.parsefile(joinpath(DEPSDIR, "build.json"))
-if params["GPU"]
-    @info "Including CUDA Arrays"
-    include("cuarrays.jl")
-end
+include("cuarrays.jl")
 
 # Hijack exception displaying
 #
@@ -107,9 +102,6 @@ for err in NGRAPH_ERRORS
     end
 end
 
-# Enable experimental operations
-const EXPERIMENTAL = true
-
 # For convenient overloading in ops.jl
 import Base: broadcasted
 
@@ -125,8 +117,6 @@ have_compiled() = __HAVE_COMPILED[]
 
 include("build.jl")
 include("env.jl")
-#include("lib.jl"); using .Lib
-
 include("types.jl")
 include("ops.jl")
 include("compile.jl")

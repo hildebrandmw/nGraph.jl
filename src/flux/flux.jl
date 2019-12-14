@@ -96,7 +96,7 @@ Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
 # The implementation of Conv reshapes the bias before the broadcasting addition.
 # So, lets hijack reshape to test if one of our parameters is being passed as an argument
 # and convert it to a Node right away.
-function Cassette.overdub(ctx::SnoopCtx, f::reshape, x::AbstractArray, args...)
+function Cassette.overdub(ctx::SnoopCtx, f::typeof(Base.reshape), x::AbstractArray, args...)
     if haskey(ctx.metadata.parameters, x)
         return Cassette.overdub(ctx, f, getnode!(ctx.metadata, x), args...)
     else
@@ -105,7 +105,7 @@ function Cassette.overdub(ctx::SnoopCtx, f::reshape, x::AbstractArray, args...)
 end
 
 # Don't hijack nodes passed into `reshape`
-function Cassette.overdub(ctx::SnoopCtx, f::reshape, x::NodeTyped, args...)
+function Cassette.overdub(ctx::SnoopCtx, f::typeof(Base.reshape), x::NodeTyped, args...)
     return Cassette.recurse(ctx, f, x, args...)
 end
 
