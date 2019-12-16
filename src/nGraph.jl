@@ -7,15 +7,11 @@ using Distributions
 
 # external dependcies
 using Cxx
-using Cassette
-using Flux
-using Libdl
-import ProgressMeter
+import Cassette
+import Flux
+import NNlib
+import Libdl
 import JSON
-
-export embedding
-
-using Dates
 
 ## Turn on CPU code generation by default.
 function __init__()
@@ -38,10 +34,11 @@ abstract type AbstractBackendType end
 struct CPU <: AbstractBackendType end
 struct GPU <: AbstractBackendType end
 
-string(::Type{CPU}) = "CPU"
-string(::Type{GPU}) = "GPU"
+Base.string(::Type{CPU}) = "CPU"
+Base.string(::Type{GPU}) = "GPU"
 
-# For creating ngraph nodes
+# Some types wrap Cxx types - this provides a hook for converting a Wrapper type into the
+# unwrapped type.
 unwrap(x) = x
 
 # ngraph likes its nodes as shared pointers.
@@ -80,15 +77,13 @@ macro op(ex)
     end
 end
 
-include("cuarrays.jl")
-
 # Hijack exception displaying
 #
 # We have to do some tricks with imports because the @exception macro isn't very robust.
 import Base: showerror
 const NGRAPH_ERRORS = [
     cxxt"ngraph::ngraph_error&",
-    cxxt"ngraph::NodeValidationError&",
+    cxxt"ngraph::NodeValidationFailure&",
 ]
 
 for err in NGRAPH_ERRORS
@@ -122,31 +117,6 @@ include("ops.jl")
 include("compile.jl")
 
 include("flux/flux.jl")
-#include("models/resnet.jl")
-#include("models/test.jl")
-#include("embed_test.jl")
-
-#####
-##### Util Functions
-#####
-
-# embedding(indices::Vector, weights::Matrix) = view(weights, :, indices)
-#
-# splicein(i::CartesianIndex, v, at) = CartesianIndex(splicein(Tuple(i), v, at))
-# splicein(i::Tuple, v, at) = (i[1:at-1]..., v, i[at:end]...)
-#
-# ### Testing Onehot
-# function onehot(input, max_index, onehot_index)
-#     # Create the output size from `max_index` and `onehot_index`
-#     sz = size(input)
-#     output_sz = splicein(sz, max_index, onehot_index)
-#     output = zeros(eltype(input), output_sz)
-#
-#     for i in CartesianIndices(input)
-#         x = input[i]
-#         output[splicein(i, x, onehot_index)] = one(eltype(input))
-#     end
-#     return output
-# end
 
 end # module
+

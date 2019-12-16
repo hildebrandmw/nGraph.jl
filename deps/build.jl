@@ -27,9 +27,8 @@ end
 #####
 
 # Fetch repo
-url = "https://github.com/darchr/ngraph"
-#branch = "mh/autotm"
-branch = "mh/pmem"
+url = "https://github.com/NervanaSystems/ngraph"
+branch = "r0.27.1"
 
 localdir = joinpath(@__DIR__, "ngraph")
 ispath(localdir) || LibGit2.clone(url, localdir; branch = branch)
@@ -78,28 +77,3 @@ run(`make install`)
 
 cd(current_dir)
 
-#####
-##### cxxwrap library
-#####
-
-@info "Building Lib"
-
-# Path to the CxxWrap dependencies
-cxxhome = dirname(dirname(CxxWrap.jlcxx_path))
-juliahome = dirname(Base.Sys.BINDIR)
-make_args = [
-    "JULIA_HOME=$juliahome",
-    "CXXWRAP_HOME=$cxxhome",
-    "CC=$CC",
-    "CXX=$CXX",
-]
-
-# Define some macros to control switches in `ngraph-julia.cpp`
-defines = String[]
-parameters["PMDK"] && push!(defines, "-DNGRAPH_PMDK_ENABLE=TRUE")
-parameters["GPU"] && push!(defines, "-DNGRAPH_GPU_ENABLE=TRUE")
-if !isempty(defines)
-    push!(make_args, "DEFINES=\"$(join(defines, " "))\"")
-end
-
-run(`make $make_args -j $nproc `)

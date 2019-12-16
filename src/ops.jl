@@ -26,7 +26,7 @@ end
 # operations
 _forward(f) = f
 _forward(::typeof(*))       = multiply
-_forward(::typeof(NNlib.σ)) = sigmoid
+_forward(::typeof(NNlib.σ)) = Flux.sigmoid
 _forward(::typeof(/))       = divide
 _forward(::typeof(//))      = divide
 
@@ -48,22 +48,6 @@ Base.broadcasted(::typeof(copy), x::NodeTyped) = x
 
 add(a::T, b::T) where {T <: NodeTyped} = T(@op Add(a, b))
 Base.:+(a::NodeTyped, b::NodeTyped) = add(a,b)
-
-#####
-##### AvgPool
-#####
-
-# function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
-#     # Convert to nGraph types
-#     window_shape = Shape(shape)
-#     strides = Strides(expand(N-2, stride))
-#     padding_below = Shape(expand(N-2, pad))
-#     padding_above = Shape(expand(N-2, pad))
-#
-#     ptr = Lib.op_avgpool(getpointer(x), window_shape, strides, padding_below, padding_above)
-#     return Node{T,N}(ptr)
-# end
-# Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
 
 #####
 ##### BatchMatrixMultiply
@@ -182,7 +166,7 @@ Base.://(a::NodeTyped{T,0}, b::NodeTyped{T,0}) where {T} = divide(a, b)
 
 # Reverse the order in the call to `@op Dot` to account for row major/col major
 # differences
-function dot(w::NodeTyped{T}, x::NodeTyped{T}, n) where {T} 
+function dot(w::NodeTyped{T}, x::NodeTyped{T}, n) where {T}
     return NodeTyped{T}(@op Dot(x, w, convert(UInt, n)))
 end
 
@@ -243,29 +227,27 @@ Base.max(a::T, b::T) where {T <: NodeTyped} = T(@op Maximum(a, b))
 ##### MaxPool
 #####
 
-# function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
-#     # Convert to nGraph types
-#     window_shape = Shape(shape)
-#     strides = Strides(expand(N-2, stride))
-#     padding_below = Shape(expand(N-2, pad))
-#     padding_above = Shape(expand(N-2, pad))
-#
-#     ptr = Lib.op_maxpool(getpointer(x), window_shape, strides, padding_below, padding_above)
-#     return Node{T,N}(ptr)
-# end
+function NNlib.maxpool(x::T, dims) where {T <: NodeTyped}
+    window_shape = Shape(NNlib.kernel_size(dims))
+    strides = Strides(NNlib.stride(dims))
+    padding_below = CoordinateDiff(padding[range(1; step = 2, stop = length(padding))])
+    padding_above = CoordinateDiff(padding[range(2; step = 2, stop = length(padding))])
 
-# stride_size(c::NNlib.PoolDims{N,K,S,P,D}) where {N,K,S,P,D} = S
-# pad_size(c::NNlib.PoolDims{N,K,S,P,D}) where {N,K,S,P,D} = P
-# function NNlib.maxpool(x::Node{T,N}, dims::NNlib.PoolDims) where {T,N}
-#     ptr = Lib.op_maxpool(
-#         getpointer(x),
-#         Shape(NNlib.kernel_size(dims)),             # window_shape
-#         Strides(stride_size(dims)),                 # strides (same as window_shape)
-#         Shape(pad_size(dims)[1:div(N,2)]),          # padding_below
-#         Shape(pad_size(dims)[(div(N,2) + 1):N]),    # padding_above
-#     )
-#     return Node{T,N}(ptr)
-# end
+    return T(@op MaxPool(x, window_shape, strides, padding_below, padding_above))
+end
+
+#####
+##### MeanPool
+#####
+
+function NNlib.meanpool(x::T, dims) where {T <: NodeTyped}
+    window_shape = Shape(NNlib.kernel_size(dims))
+    strides = Strides(NNlib.stride(dims))
+    padding_below = CoordinateDiff(padding[range(1; step = 2, stop = length(padding))])
+    padding_above = CoordinateDiff(padding[range(2; step = 2, stop = length(padding))])
+
+    return T(@op AvgPool(x, window_shape, strides, padding_below, padding_above))
+end
 
 #####
 ##### Multiply
