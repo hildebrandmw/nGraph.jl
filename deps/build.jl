@@ -58,11 +58,11 @@ nproc = parse(Int, read(`nproc`, String))
 cd(builddir)
 cmake_args = [
     "-DNGRAPH_CODEGEN_ENABLE=TRUE",
+    "-DNGRAPH_USE_PREBUILT_LLVM=TRUE",
     "-DCMAKE_BUILD_TYPE=Release",
     "-DCMAKE_C_COMPILER=$CC",
     "-DCMAKE_CXX_COMPILER=$CXX",
     "-DCMAKE_INSTALL_PREFIX=$(joinpath(@__DIR__, "usr"))",
-    "-DNGRAPH_USE_LEGACY_MKLDNN=FALSE",
     #"-DNGRAPH_TBB_ENABLE=FALSE",   # errors during build
 ]
 
