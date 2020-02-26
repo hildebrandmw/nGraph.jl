@@ -12,6 +12,17 @@ CXXFLAGS+= -I$(CXXWRAP_HOME)/include -I$(JULIA_HOME)/include/julia -I$(mkfile_di
 CXXFLAGS+= -Wno-unused-variable -Wno-unused-lambda-capture
 CXXFLAGS+= $(DEFINES)
 
+#####
+##### Hack to get lib directories better on Fedora
+#####
+
+libdir.x86_64 = lib64
+libdir.i686   = lib
+
+MACHINE := $(shell uname -m)
+
+libdir = $(libdir.$(MACHINE))
+
 # Linked Libraries:
 #
 # Julia
@@ -36,10 +47,10 @@ CXXFLAGS+= $(DEFINES)
 LOAD_FLAGS+= -L$(JULIA_HOME)/lib/ -Wl,--export-dynamic -Wl,-rpath,$(JULIA_HOME)/lib -ljulia
 LOAD_FLAGS+= -L$(CXXWRAP_HOME)/lib/ -Wl,-rpath,$(CXXWRAP_HOME)/lib -lcxxwrap_julia
 #LOAD_FLAGS+= -L${mkfile_dir}/ngraph/build/pmdk/lib/ -Wl,-rpath,${mkfile_dir}/ngraph/build/pmdk/lib -lpmemobj -lpmem
-LOAD_FLAGS+= -L$(mkfile_dir)usr/lib -Wl,-rpath,$(mkfile_dir)usr/lib -lngraph #-lcpu_backend
+LOAD_FLAGS+= -L$(mkfile_dir)usr/$(libdir) -Wl,-rpath,$(mkfile_dir)usr/$(libdir) -lngraph #-lcpu_backend
 
 .PHONY: all
 all: libngraph-julia.so
 
-libngraph-julia.so: ngraph-julia.cpp ${mkfile_dir}usr/lib/libngraph.so
+libngraph-julia.so: ngraph-julia.cpp $(mkfile_dir)usr/$(libdir)/libngraph.so
 	$(CXX) $(CXXFLAGS) -shared $^ -lpthread -o $@ $(LOAD_FLAGS)
