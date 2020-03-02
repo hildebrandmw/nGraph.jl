@@ -79,7 +79,7 @@ cd(current_dir)
 
 # On Fedora, we also need to symlink `libmkldnn` for things to work properly.
 if ispath(joinpath(current_dir, "usr", "lib64"))
-    run(`ln -s "$current_dir/usr/lib64/libmkldnn.so" "$current_dir/usr/lib64/libmkldnn.so.0"`)
+    run(`ln -sf "$current_dir/usr/lib64/libmkldnn.so" "$current_dir/usr/lib64/libmkldnn.so.0"`)
 end
 
 #####
