@@ -7,13 +7,17 @@ const PKGDIR = dirname(SRCDIR)
 const DEPSDIR = joinpath(PKGDIR, "deps")
 const MODELDIR = joinpath(PKGDIR, "models")
 
+const _LIB64DIR = joinpath(DEPSDIR, "usr", "lib64")
+const _LIBDIR = joinpath(DEPSDIR, "usr", "lib")
+const LIBDIR = ispath(_LIB64DIR) ? "lib64" : "lib"
+
 # Setup the LD_LIBRARY_PATH so libpmem can be found.
 #
 # This is a really annoying hack since libpmemobj cannot, by default, find libpmem.
-ENV["LD_LIBRARY_PATH"] = joinpath(DEPSDIR, "usr", "lib")
+ENV["LD_LIBRARY_PATH"] = joinpath(DEPSDIR, "usr", LIBDIR)
 
 const _flags = Libdl.RTLD_LAZY | Libdl.RTLD_DEEPBIND | Libdl.RTLD_GLOBAL
-Libdl.dlopen(joinpath(DEPSDIR, "usr", "lib", "libngraph.so"), _flags)
+Libdl.dlopen(joinpath(DEPSDIR, "usr", LIBDIR, "libngraph.so"), _flags)
 
 @wrapmodule(joinpath(DEPSDIR, "libngraph-julia.so"))
 

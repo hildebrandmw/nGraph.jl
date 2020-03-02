@@ -28,7 +28,6 @@ end
 
 # Fetch repo
 url = "https://github.com/darchr/ngraph"
-#branch = "mh/autotm"
 branch = "mh/pmem"
 
 localdir = joinpath(@__DIR__, "ngraph")
@@ -77,6 +76,11 @@ run(`make -j $nproc`)
 run(`make install`)
 
 cd(current_dir)
+
+# On Fedora, we also need to symlink `libmkldnn` for things to work properly.
+if ispath(joinpath(current_dir, "usr", "lib64"))
+    run(`ln -s "$current_dir/usr/lib64/libmkldnn.so" "$current_dir/usr/lib64/libmkldnn.so.0"`)
+end
 
 #####
 ##### cxxwrap library
