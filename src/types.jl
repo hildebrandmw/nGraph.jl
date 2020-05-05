@@ -1,3 +1,16 @@
+#####
+##### Utility Functions
+#####
+
+# Construct a `shape` vector from `x`.
+# Since Julia is column major while C++ is row major, we need to be careful about the order
+# we pass things.
+#
+# In general, the C++ code will not do any reversing schenanigans.
+# Thus, it's up to the Julia interfacing code to make sure the appropriate conversions
+# between column major and row major are made.
+shape(x) = [Int64(i) for i in reverse(x)]
+
 # TODO: Swap out this whole trait thing for something that deals with the new CxxWrap
 # pointer types better.
 
@@ -99,11 +112,8 @@ end
 
 Base.size(x::Node, i::Integer) = size(x)[i]
 Base.length(x) = prod(size(x))
-
 Base.eltype(x::Node{T}) where {T} = T
-
 Base.IndexStyle(::Node) = Base.IndexLinear()
-Base.axes(x::Node) = map(Base.OneTo, size(x))
 
 name(x::Node) = String(Lib.get_name(unwrap(x)))
 description(x::Node) = String(Lib.description(unwrap(x)))
@@ -111,6 +121,10 @@ description(x::Node) = String(Lib.description(unwrap(x)))
 # So these can be used as keys in a Dict
 Base.:(==)(x::T, y::T) where {T <: Node} = name(x) == name(y)
 Base.hash(x::Node, h::UInt = UInt(0x209348)) = hash(name(x), h)
+
+function Base.getindex(::Node, i::Int)
+    error("Yeah, yeah, I know \"Node\" is an AbstractArray ... but please don't index into it.")
+end
 
 #####
 ##### NGFunction
@@ -145,7 +159,8 @@ end
 wraptype(::Backend) = HasPointer()
 
 # Pass `false` to the "must_support_dynamic" flag for now.
-Backend(str::String = "CPU") = Backend{backend_type(str)}(Lib.create(str))
+Backend(str::String = "CPU") = Backend(Lib.create(str))
+version(x::Backend) = String(Lib.get_version(x.ptr))
 
 #####
 ##### Tensor
@@ -162,11 +177,11 @@ struct TensorView
     function TensorView(backend::Backend, v::Array{T}) where {T}
         # This is kind of scary - we ... just have to make sure that the parent array
         # doesn't get moved (i.e. resized ... )
-        vptr = Base.unsafe_convert(Ptr{Cvoid}, _pointer(v))
+        vptr = Base.unsafe_convert(Ptr{Cvoid}, pointer(v))
         ptr = Lib.create_tensor(
-            getpointer(backend),
-            Element(T),
-            Shape(size(v)),
+            backend.ptr,
+            Element(T)[],
+            shape(size(v)),
             vptr
         )
 

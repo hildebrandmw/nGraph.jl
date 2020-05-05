@@ -54,7 +54,6 @@ end
 #####
 
 # TODO: Fix This
-#
 # function get_performance(ex::Executable)
 #     # Construct a PerfCounterTranslator
 #     translator = Lib.PerfCounterTranslator(getpointer(ex))

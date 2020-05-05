@@ -152,9 +152,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
 
     // Define before `Executable`, since these come as arguments to the `Executable`.
     mod.add_type<ngraph::runtime::Tensor>("RuntimeTensor")
-        .method("get_shape", [](const std::shared_ptr<ngraph::Node> node)
+        .method("get_shape", [](const std::shared_ptr<ngraph::runtime::Tensor> tensor)
         {
-            return tovector(node->get_shape());
+            return tovector(tensor->get_shape());
         })
         .method("get_size_in_bytes", &ngraph::runtime::Tensor::get_size_in_bytes)
         .method("get_element_type", &ngraph::runtime::Tensor::get_element_type)
@@ -197,7 +197,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         {
             return backend->compile(func, enable_performance_data);
         })
-        .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function);
+        .method("remove_compiled_function", &ngraph::runtime::Backend::remove_compiled_function)
+        .method("get_version", &ngraph::runtime::Backend::get_version);
 
     mod.method("create", [](const std::string& type){
         return ngraph::runtime::Backend::create(type);
@@ -210,7 +211,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     // Methods that require the above types to be first declared.
 
     mod.method("create_tensor", [](
-        ngraph::runtime::Backend* backend,
+        const std::shared_ptr<ngraph::runtime::Backend> backend,
         const ngraph::element::Type& element_type,
         const jlcxx::ArrayRef<int64_t> jl_shape,
         void* ptr)

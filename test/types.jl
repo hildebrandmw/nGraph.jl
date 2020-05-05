@@ -20,62 +20,75 @@
     end
 end
 
-# @testset "Testing CoordinateDiff" begin
-#     # Just simple construction
-#     c = nGraph.CoordinateDiff([1,2,3])
-#     @test isa(c, nGraph.CoordinateDiff)
-#
-#     nGraph.CoordinateDiff((1,2,3))
-#     @test isa(c, nGraph.CoordinateDiff)
-# end
-#
-# @testset "Testing Shape" begin
-#     # No Arg Constructor
-#     s = nGraph.Shape()
-#     @test length(s) == 0
-#
-#     s = nGraph.Shape(())
-#     @test length(s) == 0
-#
-#     s = nGraph.Shape((1,2,3))
-#     @test length(s) == 3
-#     @test s[1] == 1
-#     @test s[2] == 2
-#     @test s[3] == 3
-#
-#     s = nGraph.Shape([1,2,3])
-#     @test length(s) == 3
-#     @test s[1] == 1
-#     @test s[2] == 2
-#     @test s[3] == 3
-# end
-#
-# @testset "Testing Strides" begin
-#     s = nGraph.Strides([1,2,3])
-#     @test isa(s, nGraph.Strides)
-#
-#     s = nGraph.Strides((1,2,3))
-#     @test isa(s, nGraph.Strides)
-# end
-#
-# @testset "Testing AxisSet" begin
-#     s = nGraph.AxisSet([1,2,3], 3)
-#     @test isa(s, nGraph.AxisSet)
-#
-#     s = nGraph.AxisSet((1,2,3), 4)
-#     @test isa(s, nGraph.AxisSet)
-#
-#     s = nGraph.AxisSet(1, 3)
-#     @test isa(s, nGraph.AxisSet)
-# end
-#
-# @testset "Testing AxisVector" begin
-#     s = nGraph.AxisVector([1,2,3], 3)
-#     @test isa(s, nGraph.AxisVector)
-#
-#     s = nGraph.AxisVector((1,2,3), 5)
-#     @test isa(s, nGraph.AxisVector)
-#
-#     s = nGraph.AxisVector(1, 1)
-#     @test isa(s, nGraph.AxisVector)
-# end
+@testset "Testing Nodes" begin
+    # Create a dummy parameter.
+    param = nGraph.parameter(Float32, (10, 10))
+
+    @test isa(param, nGraph.Node)
+
+    # Test printing
+    println(devnull, param)
+
+    @test ndims(param) == 2
+    @test size(param) == (10,10)
+    @test size(param, 1) == 10
+    @test size(param, 2) == 10
+    @test eltype(param) == Float32
+    @test eltype(param.obj) == Float32
+    @test nGraph.description(param) == "Parameter"
+    println(devnull, nGraph.name(param))
+
+    # Go into higher dimensions.
+    x = nGraph.parameter(Int32, (10, 20, 30))
+    @test size(x) == (10, 20, 30)
+    @test size(x, 3) == 30
+end
+
+@testset "Testing Function" begin
+    # For this test, we need the `+` funcion defined in `ops`.
+    a = nGraph.parameter(Float32, (10,10))
+    b = nGraph.parameter(Float32, (10,10))
+
+    z = a + b
+    @test isa(z, nGraph.Node)
+    @test eltype(z) == Float32
+    @test size(z) == (10,10)
+    @test nGraph.description(z) == "Add"
+
+    fn = nGraph.NGFunction([a,b], [z])
+
+    println(devnull, nGraph.name(fn))
+
+    # At this point, we haven't compiled the function, so the poolsize should just default
+    # to zero.
+    @test iszero(nGraph.poolsize(fn))
+end
+
+@testset "Testing Backend" begin
+    backend = nGraph.Backend("CPU")
+    @test nGraph.version(backend) == "0.0.0"
+end
+
+@testset "Testing Tensor View" begin
+    backend = nGraph.Backend("CPU")
+    x = Array{Float32}(undef, 10, 10)
+
+    tv = nGraph.TensorView(backend, x)
+    @test parent(tv) === x
+    @test eltype(tv) == eltype(parent(tv))
+    @test sizeof(tv) == sizeof(parent(tv))
+    @test size(tv) == size(parent(tv))
+    println(devnull, tv)
+
+    # Construct a TensorView from a scalar.
+    tv = nGraph.TensorView(backend, 1.0)
+    @test size(tv) == ()
+    @test eltype(tv) == Float64
+
+    # Construct a TensorView from a Node
+    node = nGraph.parameter(Int32, (20, 20))
+    tv = nGraph.TensorView(backend, node)
+    @test size(node) == size(parent(node)) == (20, 20)
+    @test eltype(node) == eltype(parent(node)) == Int32
+end
+

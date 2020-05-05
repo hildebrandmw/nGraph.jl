@@ -1,9 +1,7 @@
-# Construct a `shape` vector from `x`
-shape(x) = [Int64(i) for i in reverse(x)]
-
 #####
 ##### Helper Functions
 #####
+
 
 # Make the signature match the Flux signature
 expand(N, i::Tuple) = i
