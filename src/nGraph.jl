@@ -25,12 +25,13 @@ const MODELDIR = joinpath(PKGDIR, "models")
 import Base: broadcasted
 
 include("env.jl")
-include("lib.jl"); using .Lib
+include("lib.jl")
+import .Lib
 
 include("types.jl")
 include("ops.jl")
-# include("compile.jl")
-#
+include("compile.jl")
+
 # include("flux/flux.jl")
 # include("models/resnet.jl")
 # include("models/test.jl")

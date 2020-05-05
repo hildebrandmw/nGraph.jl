@@ -1,5 +1,16 @@
+# Implements conversion from some high-level Flux ops to their equivalent nGraph
+# representations when running under Cassette.
 include("flux_ops.jl")
+
+# TODO: remove `optimizers`.
 include("optimizers.jl")
+
+# Some tuple utilities
+astuple(x::Tuple) = x
+astuple(x) = (x,)
+
+untuple(x::Tuple) = x
+untuple(x::Tuple{T}) where {T} = first(x)
 
 #####
 ##### Cassette Magic

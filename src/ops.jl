@@ -65,13 +65,13 @@ parameter(x::Node) = x
 
 # Begin Ops
 
-# #####
-# ##### Add
-# #####
-#
-# add(a::N, b::N) where {N <: Node} = N(Lib.op_add(getpointer(a), getpointer(b)))
-# Base.:+(a::Node, b::Node) = add(a,b)
-#
+#####
+##### Add
+#####
+
+add(a::N, b::N) where {N <: Node} = N(Lib.op_add(unwrap(a), unwrap(b)))
+Base.:+(a::Node, b::Node) = add(a,b)
+
 # #####
 # ##### AvgPool
 # #####

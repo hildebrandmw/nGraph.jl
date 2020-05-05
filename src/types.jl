@@ -1,3 +1,6 @@
+# TODO: Swap out this whole trait thing for something that deals with the new CxxWrap
+# pointer types better.
+
 # Trait if a type defined here is just a pure CxxWrap pointer
 struct IsPointer end
 
@@ -62,44 +65,6 @@ end
 back(x) = TYPEMAPS[NGElements(Lib.Type_t(x[]))]
 
 #####
-##### Tensor Descriptor
-#####
-
-# struct TensorDescriptor
-#     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.DescriptorTensor,:St10shared_ptrIiE}
-# end
-# wraptype(::TensorDescriptor) = HasPointer()
-#
-# # Here, we take advantage (hope) of the unique name for each tensor to get a unique
-# # identifies
-# rawptr(a::TensorDescriptor) = getpointer(a)[]
-# Base.:(==)(a::TensorDescriptor, b::TensorDescriptor) = rawptr(a) == rawptr(b)
-# Base.hash(x::TensorDescriptor, h::UInt = UInt(0x10984)) = hash(rawptr(x), h)
-#
-# Base.show(io::IO, T::TensorDescriptor) = println(io, "Tensor Descriptor: $(name(T))")
-#
-# Base.sizeof(T::TensorDescriptor) = convert(Int64, Lib._sizeof(getpointer(T)))
-# function Base.size(T::TensorDescriptor)
-#     shape = Lib.get_shape(getpointer(T))
-#     return ntuple(i -> shape[i], length(shape))
-# end
-#
-# Base.eltype(T::TensorDescriptor) = back(Lib.get_element_type(getpointer(T)))
-# name(T::TensorDescriptor) = Lib.get_name(getpointer(T))
-
-#####
-##### Backend
-#####
-
-struct Backend
-    ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.Backend}
-end
-wraptype(::Backend) = HasPointer()
-
-# Pass `false` to the "must_support_dynamic" flag for now.
-Backend(str::String = "CPU") = Backend{backend_type(str)}(Lib.create(str))
-
-#####
 ##### Nodes
 #####
 
@@ -128,6 +93,7 @@ Base.ndims(x::Node) = ndims(unwrap(x))
 function Base.size(x::Node)
     nd = ndims(x)
     dims = Lib.get_output_shape(unwrap(x))
+    # Reversing is done on the ngraph side.
     return Tuple(Int.(reverse(dims)))
 end
 
@@ -146,171 +112,96 @@ description(x::Node) = String(Lib.description(unwrap(x)))
 Base.:(==)(x::T, y::T) where {T <: Node} = name(x) == name(y)
 Base.hash(x::Node, h::UInt = UInt(0x209348)) = hash(name(x), h)
 
-# #####
-# ##### Tensor
-# #####
-#
-# revdims(::Val{N}) where {N} = ntuple(i -> N + 1 - i, N)
-# revdims(::AbstractArray{T,N}) where {T,N} = revdims(Val{N}())
-#
-# # Hook point for dispatch - we need this because we need to turn regular Arrays into GPU
-# # Arrays when a `TensorView` is constructed.
-# transport(::Type{CPU}, x::AbstractArray) = x
-# _pointer(x::AbstractArray) = pointer(x)
-#
-# struct TensorView
-#     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.RuntimeTensor,:St10shared_ptrIiE}
-#     backend::Backend
-#     # Keep track of the base array to avoid GC
-#     base::AbstractArray
-#
-#     function TensorView(backend::Backend{C}, v::Array{T,N}) where {C,T,N}
-#         v = transport(C, v)
-#
-#         # This is kind of scary - we ... just have to make sure that the parent array
-#         # doesn't get moved (i.e. resized ... )
-#         vptr = Base.unsafe_convert(Ptr{Cvoid}, _pointer(v))
-#         ptr = Lib.create_tensor(
-#             getpointer(backend),
-#             Element(T),
-#             Shape(size(v)),
-#             vptr
-#         )
-#
-#         return new(ptr, backend, v)
-#     end
-# end
-# rawptr(T::TensorView) = getpointer(T)[]
-#
-# function Base.display(TV::TensorView)
-#     printstyled("Tensor View\n"; color = :yellow)
-#     display(TV.base)
-# end
-#
-# Node(x::TensorView) = Node(Lib.op_parameter(
-#     Lib.get_element_type(getpointer(x)),
-#     Lib.get_shape(getpointer(x)),
-# ))
-#
-# wraptype(::TensorView) = HasPointer()
-#
-# Base.eltype(T::TensorView) = back(Lib.get_element_type(getpointer(T)))
-# Base.sizeof(t::TensorView) = convert(Int, Lib.get_size_in_bytes(getpointer(t)))
-#
-# TensorView(backend, x::TensorView) = x
-# function TensorView(backend, x::T) where {T}
-#     A = Array{T,0}(undef)
-#     A[] = x
-#     return TensorView(backend, A)
-# end
-#
-# # If we're trying to create a tensor view from a node - create an undefined array and return
-# # a view of that.
-# function TensorView(backend::Backend, v::Node{T,N}) where {T,N}
-#     A = Array{T}(undef, size(v))
-#     return TensorView(backend, A)
-# end
-#
-# function Base.size(t::TensorView)
-#     shape = Shape(getpointer(t))
-#     return ntuple(i -> shape[i], length(shape))
-# end
-#
-# Base.parent(t::TensorView) = t.base
-# fetch(t::TensorView) = collect(parent(t))
-#
-# #####
-# ##### Adjoints
-# #####
-#
-# const Adjoints = Lib.AdjointsAllocated
-# wraptype(::Adjoints) = IsPointer()
-#
-# make_adjoints(x, y) = Lib.make_adjoints(NodeVector(x), NodeVector(y))
-# backprop_node(A::Adjoints, x::T) where {T <: Node} = T(Lib.backprop_node(A, getpointer(x)))
-#
-# #####
-# ##### Parameters
-# #####
-#
-# const ParameterVector = Union{Lib.ParameterVectorAllocated, Lib.ParameterVectorRef}
-# wraptype(::ParameterVector) = IsPointer()
-#
-# ParameterVector(args...) = ParameterVector(args)
-# function ParameterVector(args::Union{Tuple,Vector})
-#     p = Lib.ParameterVector()
-#     for arg in args
-#         Lib.push!(p, getpointer(arg))
-#     end
-#     return p
-# end
-#
-# Base.length(P::ParameterVector) = Lib._length(P)
-# Base.getindex(P::ParameterVector, i) = Node(Lib._getindex(P, convert(Int64, i-1)))
-# Base.iterate(P, s = 1) = (s > length(P)) ? nothing : (P[s], s+1)
-#
-# #####
-# ##### NodeWrapper
-# #####
-#
-# const NodeWrapper = Lib.NodeWrapperAllocated
-# wraptype(::NodeWrapper) = IsPointer()
-#
-# Base.length(n::NodeWrapper) = Lib._length(n)
-# Base.getindex(n::NodeWrapper, i) = Node(Lib._getindex(n, convert(Int, i-1)))
-# Base.iterate(n::NodeWrapper, s = 1) = (s > length(n)) ? nothing : (n[s], s+1)
-#
-# mutable struct NFunction
-#     ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.NFunction,:St10shared_ptrIiE}
-#
-#     # List of node operations in the function. Represented as a Lib.NodeWrapperAlocated
-#     # because this is generated on the C++ side of things and will get cleaned up if we
-#     # let it go out of scope.
-#     #
-#     # TODO: Find a way to make this not happen.
-#     ops::Lib.NodeWrapperAllocated
-#     callback::Any
-#
-#     function NFunction(nodes::Lib.NodeVectorAllocated, params::Lib.ParameterVectorAllocated)
-#         ptr = Lib.make_function(nodes, params)
-#         ops = Lib.get_ordered_ops(ptr)
-#         return new(ptr, ops, nothing)
-#     end
-#
-#     function NFunction(ptr::Lib.CxxWrap.SmartPointerWithDeref{nGraph.Lib.NFunction,:St10shared_ptrIiE})
-#         ops = Lib.get_ordered_ops(ptr)
-#         return new(ptr, ops, nothing)
-#     end
-# end
-# wraptype(::NFunction) = HasPointer()
-#
-# get_ordered_ops!(f::NFunction) = f.ops = Lib.get_ordered_ops(getpointer(f))
-# get_results(f::NFunction) = Lib.get_results(getpointer(f))
-# get_parameters(f::NFunction) = Lib.get_parameters(getpointer(f))
-# get_temporary_pool_size(f::NFunction) = convert(Int, Lib.get_temporary_pool_size(getpointer(f)))
-# get_pmem_pool_size(f::NFunction) = Lib.get_remote_pool_size(getpointer(f))
-# get_constants(f::NFunction) = collect(Iterators.filter(x -> description(x) == "Constant", f))
-#
-# Base.length(f::NFunction) = Lib._length(f.ops)
-# Base.getindex(f::NFunction, i) = Node(Lib._getindex(f.ops, convert(Int64, i-1)))
-# name(f::NFunction) = Lib.get_name(getpointer(f))
-#
-# function Base.iterate(f::NFunction)
-#     # Make sure everything is ordered
-#     get_ordered_ops!(f)
-#     s = 1
-#     return s <= length(f) ? (f[s], s+1) : nothing
-# end
-# Base.iterate(f::NFunction, s) = (s <= length(f)) ? (f[s], s+1) : nothing
-#
-# # Allow reverse iterations
-# Base.reverse(f::NFunction) = Iterators.reverse(f)
-# Base.iterate(f::Iterators.Reverse{NFunction}, s = length(f.itr)) =
-#     (s == 0) ? nothing : (f.itr[s], s-1)
-#
-# Base.copy(f::NFunction) = NFunction(Lib.clone_function(getpointer(f)))
-#
-# #####
-# ##### Low level handles for dealing with objects
-# #####
-#
+#####
+##### NGFunction
+#####
+
+mutable struct NGFunction
+    ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.NGFunction}
+end
+
+function NGFunction(parameters::Vector, results::Vector)
+    ptr = make_function(parameters, results)
+    return NGFunction(ptr)
+end
+
+function make_function(inputs::Vector, outputs::Vector)
+    # Unwrap and create references.
+    parameters = Lib.CxxWrap.CxxRef.(unwrap.(inputs))
+    results = Lib.CxxWrap.CxxRef.(unwrap.(outputs))
+    return Lib.make_function(results, parameters)
+end
+
+name(f::NGFunction) = String(Lib.get_name(f.ptr))
+poolsize(f::NGFunction) = Int(Lib.get_temporary_pool_size(f.ptr))
+
+#####
+##### Backend
+#####
+
+struct Backend
+    ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.Backend}
+end
+wraptype(::Backend) = HasPointer()
+
+# Pass `false` to the "must_support_dynamic" flag for now.
+Backend(str::String = "CPU") = Backend{backend_type(str)}(Lib.create(str))
+
+#####
+##### Tensor
+#####
+
+struct TensorView
+    ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.RuntimeTensor}
+    backend::Backend
+
+    # Keep track of the base array to avoid GC
+    # TODO: Rethink the whole - "casting to pointer" thing.
+    parent::AbstractArray
+
+    function TensorView(backend::Backend, v::Array{T}) where {T}
+        # This is kind of scary - we ... just have to make sure that the parent array
+        # doesn't get moved (i.e. resized ... )
+        vptr = Base.unsafe_convert(Ptr{Cvoid}, _pointer(v))
+        ptr = Lib.create_tensor(
+            getpointer(backend),
+            Element(T),
+            Shape(size(v)),
+            vptr
+        )
+
+        return new(ptr, backend, v)
+    end
+end
+
+Base.eltype(x::TensorView) = back(Lib.get_element_type(x.ptr))
+Base.sizeof(x::TensorView) = convert(Int, Lib.get_size_in_bytes(x.ptr))
+
+TensorView(backend, x::TensorView) = x
+
+# Capture scalars in a 0-dimensional array
+function TensorView(backend, x::T) where {T}
+    A = Array{T,0}(undef)
+    A[] = x
+    return TensorView(backend, A)
+end
+
+# If we're trying to create a tensor view from a node
+# create an undefined array and return a view of that.
+function TensorView(backend::Backend, v::Node{T,N}) where {T,N}
+    A = Array{T}(undef, size(v))
+    return TensorView(backend, A)
+end
+
+function Base.size(t::TensorView)
+    shape = Lib.get_shape(t.ptr)
+    return Tuple(reverse(shape))
+end
+
+Base.parent(t::TensorView) = t.parent
+
+function show(io::IO, TV::TensorView)
+    printstyled(io, "Tensor View\n"; color = :yellow)
+    println(io, parent(TV))
+end
+
