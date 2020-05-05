@@ -2,7 +2,7 @@ mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 mkfile_dir := $(dir $(mkfile_path))
 
 OPT= -g -O3
-CXXFLAGS+= -Wall -fPIC $(OPT) -std=c++14 -DPCM_SILENT -DJULIA_ENABLE_THREADING -Dexcept_EXPORTS
+CXXFLAGS+= -Wall -fPIC $(OPT) -std=c++17 -DPCM_SILENT -DJULIA_ENABLE_THREADING -Dexcept_EXPORTS
 CXXFLAGS+= -I$(CXXWRAP_HOME)/include -I$(JULIA_HOME)/include/julia -I$(mkfile_dir)usr/include
 # Add path to PMDK
 #CXXFLAGS+= -I${mkfile_dir}/usr/include/pmdk
