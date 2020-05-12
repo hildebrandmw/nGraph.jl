@@ -11,6 +11,20 @@
 
 An experimental frontend for https://github.com/NervanaSystems/ngraph.
 
+## Current State of Affairs
+
+The current state of affairs is something like this:
+
+TLDR: Package is currently broken, but I hope to have it unbroken and registered sometime in the near future (~weeks?).
+
+I originally developed this repo for a project using ngraph (since I very much prefer writing Julia code than C++) and so much of the code in this repo was tied to a custom modified version of ngraph which has since fallen very behind later ngraph released.
+
+I've taken up this project after some months in my spare time with the plans of registering this as an "official" Julia package (because I don't want all the work in this to go to waste). However, changes to ngraph and CxxWrap (and the need to rip out all the custom functionality I added) has lead to a large churn in the code base.
+
+Fortunately, most of the nitty details of getting it to work have already been figured out, it's mostly a matter of refactoring. Once I register it (and add documentation to make it actually usable), I will endeavor to stop hilariously breaking master and focus on cross-platform support, supporting more of the full list of ngraph ops etc.
+
+Stay tuned! 😄
+
 ## Usage Example
 
 ```julia
