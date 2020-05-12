@@ -9,23 +9,35 @@
 # In general, the C++ code will not do any reversing schenanigans.
 # Thus, it's up to the Julia interfacing code to make sure the appropriate conversions
 # between column major and row major are made.
-shape(x) = [Int64(i) for i in reverse(x)]
+#
+# nGraph Ordered Types shadowed
+_reversed(x) = [Int64(i) for i in reverse(x)]
+shape(x) = _reversed(x)
+strides(x) = _reversed(x)
 
-# TODO: Swap out this whole trait thing for something that deals with the new CxxWrap
-# pointer types better.
+# It is convenient to construct Shape, Strides etc. from Tuples, Numbers, Vectors etc.
+# Here, is the machinery that does the dispatch.
+_expand(N, x) = fill(Int(x), N)
 
-# Trait if a type defined here is just a pure CxxWrap pointer
-struct IsPointer end
+# Numbers
+shape(N, x::Number) = _expand(N, x)
+strides(N, x::Number) = _expand(N, x)
 
-# Trait if type has a field that is a pointer to a CxxWrap pointer
-struct HasPointer{Field} end
-HasPointer() = HasPointer{:ptr}()
+# Tuples and Vectors
+maybecollect(x::Vector) = x
+maybecollect(x) = collect(x)
 
-wraptype(x) = error("No wrap type defined for $(typeof(x))")
+function ordered(N, x)
+    # Determine how many repetitions we need
+    repitions, remainder = divrem(length(x), N)
+    if !iszero(remainder)
+        error("The length of `x` must be divisible by $N")
+    end
 
-unwrap(x) = _ptr(x, wraptype(x))
-_ptr(x, ::IsPointer) = x
-_ptr(x, ::HasPointer{Field}) where {Field} = getfield(x, Field)
+    return _reversed(repeat(maybecollect(x), repitions))
+end
+shape(N, x::Union{Tuple,Vector}) = ordered(N, x)
+strides(N, x::Union{Tuple,Vector}) = ordered(N, x)
 
 #####
 ##### Element Type Maps
@@ -75,37 +87,38 @@ for (S,T) in TYPEMAPS
     @eval Element(::Type{$T}) = Lib.ngraph_type($(Int32(S)))
 end
 
-back(x) = TYPEMAPS[NGElements(Lib.Type_t(x[]))]
+back(x) = TYPEMAPS[NGElements(@ngraphcall Type_t(x[]))]
+ngraph_convert(::Type{T}) where {T <: Number} = Element(T)[]
 
 #####
 ##### Nodes
 #####
 
 const NodeCppType = Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.Node}
-Base.ndims(x::NodeCppType) = length(Lib.get_output_shape(x))
-Base.eltype(x::NodeCppType) = back(Lib.get_output_element_type(x, 0))
+Base.ndims(x::NodeCppType) = length(@ngraphcall get_output_shape(x))
+Base.eltype(x::NodeCppType) = back(@ngraphcall get_output_element_type(x, 0))
 
 # Subtype AbstractArray to get all of the nice fallbacks.
 struct Node{T,N} <: AbstractArray{T,N}
     obj::NodeCppType
 end
-unwrap(x::Node) = x.obj
+ngraph_convert(x::Node) = x.obj
 
 Base.show(io::IO, x::Node{T,N}) where {T,N} = println(io, "Node{$T,$N} - $(name(x))")
 Base.display(x::Node) = show(stdout, x)
 
-Node{T}(x::NodeCppType) where {T} = NodeTyped{T,ndims(x)}(x)
+Node{T}(x::NodeCppType) where {T} = Node{T,ndims(x)}(x)
 Node(x::NodeCppType) = Node{eltype(x),ndims(x)}(x)
 
 Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
 Node{T,N}(x::AbstractArray{T,N}) where {T,N} = parameter(T, size(x))
 
 # Array style arguments
-Base.ndims(x::Node) = ndims(unwrap(x))
+Base.ndims(x::Node) = ndims(x.obj)
 
 function Base.size(x::Node)
     nd = ndims(x)
-    dims = Lib.get_output_shape(unwrap(x))
+    dims = @ngraphcall get_output_shape(x)
     # Reversing is done on the ngraph side.
     return Tuple(Int.(reverse(dims)))
 end
@@ -115,8 +128,8 @@ Base.length(x) = prod(size(x))
 Base.eltype(x::Node{T}) where {T} = T
 Base.IndexStyle(::Node) = Base.IndexLinear()
 
-name(x::Node) = String(Lib.get_name(unwrap(x)))
-description(x::Node) = String(Lib.description(unwrap(x)))
+name(x::Node) = String(@ngraphcall get_name(x))
+description(x::Node) = String(@ngraphcall description(x))
 
 # So these can be used as keys in a Dict
 Base.:(==)(x::T, y::T) where {T <: Node} = name(x) == name(y)
@@ -133,6 +146,7 @@ end
 mutable struct NGFunction
     ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.NGFunction}
 end
+ngraph_convert(x::NGFunction) = x.ptr
 
 function NGFunction(parameters::Vector, results::Vector)
     ptr = make_function(parameters, results)
@@ -140,33 +154,30 @@ function NGFunction(parameters::Vector, results::Vector)
 end
 
 function make_function(inputs::Vector, outputs::Vector)
-    # Unwrap and create references.
-    parameters = Lib.CxxWrap.CxxRef.(unwrap.(inputs))
-    results = Lib.CxxWrap.CxxRef.(unwrap.(outputs))
-    return Lib.make_function(results, parameters)
+    return @ngraphcall make_function(outputs, inputs)
 end
 
-name(f::NGFunction) = String(Lib.get_name(f.ptr))
-poolsize(f::NGFunction) = Int(Lib.get_temporary_pool_size(f.ptr))
+name(f::NGFunction) = String(@ngraphcall get_name(f))
+poolsize(f::NGFunction) = Int(@ngraphcall get_temporary_pool_size(f))
 
 #####
 ##### Backend
 #####
 
-struct Backend
+struct Backend{T}
     ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.Backend}
 end
-wraptype(::Backend) = HasPointer()
+ngraph_convert(x::Backend) = x.ptr
 
-# Pass `false` to the "must_support_dynamic" flag for now.
-Backend(str::String = "CPU") = Backend(Lib.create(str))
-version(x::Backend) = String(Lib.get_version(x.ptr))
+#Backend(str::String = "CPU") = Backend(Lib.create(str))
+Backend{T}() where {T} = Backend{T}(@ngraphcall create(string(T)))
+version(x::Backend) = String(Lib.get_version(ngraph_convert(x)))
 
 #####
 ##### Tensor
 #####
 
-struct TensorView
+struct Tensor
     ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.RuntimeTensor}
     backend::Backend
 
@@ -174,7 +185,7 @@ struct TensorView
     # TODO: Rethink the whole - "casting to pointer" thing.
     parent::AbstractArray
 
-    function TensorView(backend::Backend, v::Array{T}) where {T}
+    function Tensor(backend::Backend, v::Array{T}) where {T}
         # This is kind of scary - we ... just have to make sure that the parent array
         # doesn't get moved (i.e. resized ... )
         vptr = Base.unsafe_convert(Ptr{Cvoid}, pointer(v))
@@ -188,35 +199,106 @@ struct TensorView
         return new(ptr, backend, v)
     end
 end
+ngraph_convert(x::Tensor) = x.ptr
 
-Base.eltype(x::TensorView) = back(Lib.get_element_type(x.ptr))
-Base.sizeof(x::TensorView) = convert(Int, Lib.get_size_in_bytes(x.ptr))
+Base.eltype(x::Tensor) = back(Lib.get_element_type(ngraph_convert(x)))
+Base.sizeof(x::Tensor) = convert(Int, Lib.get_size_in_bytes(ngraph_convert(x)))
 
-TensorView(backend, x::TensorView) = x
+Tensor(backend, x::Tensor) = x
 
 # Capture scalars in a 0-dimensional array
-function TensorView(backend, x::T) where {T}
+function Tensor(backend, x::T) where {T}
     A = Array{T,0}(undef)
     A[] = x
-    return TensorView(backend, A)
+    return Tensor(backend, A)
 end
 
 # If we're trying to create a tensor view from a node
 # create an undefined array and return a view of that.
-function TensorView(backend::Backend, v::Node{T,N}) where {T,N}
+function Tensor(backend::Backend, v::Node{T,N}) where {T,N}
     A = Array{T}(undef, size(v))
-    return TensorView(backend, A)
+    return Tensor(backend, A)
 end
 
-function Base.size(t::TensorView)
-    shape = Lib.get_shape(t.ptr)
+function Base.size(t::Tensor)
+    shape = Lib.get_shape(ngraph_convert(t))
     return Tuple(reverse(shape))
 end
 
-Base.parent(t::TensorView) = t.parent
+Base.parent(t::Tensor) = t.parent
 
-function show(io::IO, TV::TensorView)
+function Base.show(io::IO, TV::Tensor)
     printstyled(io, "Tensor View\n"; color = :yellow)
     println(io, parent(TV))
 end
+
+#####
+##### Executable
+#####
+
+mutable struct Executable
+    ptr::Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.Executable}
+    ngraph_function::NGFunction
+    backend::Backend
+
+    function Executable(ptr, ngraph_function::NGFunction, backend::Backend)
+        ex = new(ptr, ngraph_function, backend)
+
+        # On cleanup - remove the compiled function.
+        finalizer(ex) do x
+            Lib.remove_compiled_function(x.backend.ptr, x.ptr)
+        end
+        return ex
+    end
+end
+ngraph_convert(ex::Executable) = ex.ptr
+
+function (ex::Executable)(
+        inputs::Vector{Tensor},
+        outputs::Vector{Tensor}
+    )
+    return @ngraphcall call(ex, outputs, inputs)
+end
+
+function compile(backend::Backend, inputs::Vector, outputs::Vector; kw...)
+    # Gather up the raw shared pointers
+    fn = NGFunction(inputs, outputs)
+    compile(backend::Backend, fn; kw...)
+end
+
+function compile(
+        backend::Backend,
+        ngraph_function::NGFunction;
+        emit_timing::Bool = false,
+    )
+
+    @time pointer = Lib.compile(backend.ptr, ngraph_function.ptr, emit_timing)
+
+    # Indicate that the compiler has been invoked.
+    return Executable(pointer, ngraph_function, backend)
+end
+
+# Conversions for vectors of Nodes and Tensors
+ngraph_convert(x::Vector{<:Node}) = Lib.CxxWrap.CxxRef.(ngraph_convert.(x))
+ngraph_convert(x::Vector{<:Tensor}) = Lib.CxxWrap.CxxRef.(ngraph_convert.(x))
+
+#####
+##### Extract performance data
+#####
+
+# TODO: Fix This
+# function get_performance(ex::Executable)
+#     # Construct a PerfCounterTranslator
+#     translator = Lib.PerfCounterTranslator(getpointer(ex))
+#
+#     # Create a dictionary of timing results. Iterate through the CounterTranslator to
+#     # construct the dict.
+#     times = Dict{String,Int}()
+#     for i in 1:Lib._length(translator)
+#         name, time = Lib._getindex(translator, i-1)
+#         times[name] = convert(Int, time)
+#     end
+#     return times
+# end
+
 

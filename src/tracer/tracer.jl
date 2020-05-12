@@ -1,9 +1,6 @@
 # Implements conversion from some high-level Flux ops to their equivalent nGraph
 # representations when running under Cassette.
-include("flux_ops.jl")
-
-# TODO: remove `optimizers`.
-include("optimizers.jl")
+#include("lib.jl")
 
 # Some tuple utilities
 astuple(x::Tuple) = x
@@ -16,23 +13,30 @@ untuple(x::Tuple{T}) where {T} = first(x)
 ##### Cassette Magic
 #####
 
-Cassette.@context SnoopCtx
+Cassette.@context TraceCtx
 
+# NOTE: Register was required in the past for some nodes like `BatchNorm` that left
+# dangling nodes in the computation graph that then led ngraph to segfault
+#
+# TODO: Does this still happen?
 """
     __register(x::Node) -> Nothing
 
-By default, becomes a no-op. When executed under [`SnoopCtx`](@ref), registers `x` as a
+By default, becomes a no-op. When executed under [`TraceCtx`](@ref), registers `x` as a
 hidden output of a ngraph function.
 """
 __register(x::Node) = nothing
 
-struct SnoopMeta
+struct TraceMetadata
     # The Julia containers for the parameters of this network
-    parameters::IdDict{Any,Nothing}
+    parameters::IdSet{Any}
 
     # Mapping of Parameter to nGraph Node
     param_to_node::IdDict{Any,Node}
     node_to_param::IdDict{Node,Any}
+
+    # Keep track of the constants we have created.
+    constants::IdDict{Any,Node}
 
     # Used for keeping track of the order that Nodes are created for deterministic ordering
     # of inputs and outputs
@@ -40,10 +44,11 @@ struct SnoopMeta
     secondary::Vector{Node}
 end
 
-SnoopMeta() = SnoopMeta(
-    IdDict{Any,Nothing}(),
+TraceMetadata() = TraceMetadata(
+    IdSet{Any}(),
     IdDict{Any,Node}(),
     IdDict{Node,Any}(),
+    IdDict{Any,Node}(),
     Node[],
     Node[],
 )
@@ -53,7 +58,7 @@ SnoopMeta() = SnoopMeta(
 #####
 
 # Hijack Node constructors from Arrays
-function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::AbstractArray) where {T,N}
+function Cassette.overdub(ctx::TraceCtx, f::Type{Node{T,N}}, x::AbstractArray) where {T,N}
     # Check if this array is a parameter - if so,make it an nGraph input.
     # Otherwise, make it a constant.
     if haskey(ctx.metadata.parameters, x)
@@ -76,36 +81,41 @@ function Cassette.overdub(ctx::SnoopCtx, f::Type{Node{T,N}}, x::AbstractArray) w
         return node
     end
 
-    # Otherwise, make this a constant
-    return constant(x)
+    # Check if we've already made a constant for this object.
+    node = get(ctx.constants, x, nothing)
+    if isnothing(node)
+        node = constant(x)
+        ctx.constants[x] = node
+    end
+    return node
 end
 
 # Do not hijack creating nodes from nodes.
-Cassette.overdub(ctx::SnoopCtx, f::Type{<:Node}, x::Node) = f(x)
+Cassette.overdub(ctx::TraceCtx, f::Type{<:Node}, x::Node) = f(x)
 
-Cassette.overdub(ctx::SnoopCtx, ::typeof(__register), x::Node) =
+Cassette.overdub(ctx::TraceCtx, ::typeof(__register), x::Node) =
     push!(ctx.metadata.secondary, x)
 
 # Get around Cassette bug with `reverse`
-Cassette.overdub(::SnoopCtx, ::typeof(reverse), args...) = reverse(args...)
+Cassette.overdub(::TraceCtx, ::typeof(reverse), args...) = reverse(args...)
 
-# Hijack these layers
-Cassette.overdub(ctx::SnoopCtx, f::Flux.Dense, args...) =
-    Cassette.overdub(ctx, _dense_impl, f, args...)
-
-Cassette.overdub(ctx::SnoopCtx, f::Flux.Conv, args...) =
-    Cassette.overdub(ctx, _conv_impl, f, args...)
-
-Cassette.overdub(ctx::SnoopCtx, f::Flux.CrossCor, args...) =
-    Cassette.overdub(ctx, _conv_impl, f, args...)
-
-Cassette.overdub(ctx::SnoopCtx, f::Flux.BatchNorm, args...) =
-    Cassette.overdub(ctx, _batchnorm_impl, f, args...)
+# # Hijack these layers
+# Cassette.overdub(ctx::TraceCtx, f::Flux.Dense, args...) =
+#     Cassette.overdub(ctx, _dense_impl, f, args...)
+#
+# Cassette.overdub(ctx::TraceCtx, f::Flux.Conv, args...) =
+#     Cassette.overdub(ctx, _conv_impl, f, args...)
+#
+# Cassette.overdub(ctx::TraceCtx, f::Flux.CrossCor, args...) =
+#     Cassette.overdub(ctx, _conv_impl, f, args...)
+#
+# Cassette.overdub(ctx::TraceCtx, f::Flux.BatchNorm, args...) =
+#     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
 # Skip recursing initialization calls - recursing turns out to take a very, very long time.
-Cassette.overdub(ctx::SnoopCtx, f::typeof(rand), args...) = f(args...)
-Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_normal), args...) = f(args...)
-Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_uniform), args...) = f(args...)
+Cassette.overdub(ctx::TraceCtx, f::typeof(rand), args...) = f(args...)
+#Cassette.overdub(ctx::TraceCtx, f::typeof(Flux.glorot_normal), args...) = f(args...)
+#Cassette.overdub(ctx::TraceCtx, f::typeof(Flux.glorot_uniform), args...) = f(args...)
 
 #####
 ##### Main `compile` entrypoint
@@ -116,22 +126,12 @@ Cassette.overdub(ctx::SnoopCtx, f::typeof(Flux.glorot_uniform), args...) = f(arg
 
 Trace and compile a Flux model `f` with `args`.
 """
-function compile(
-        backend::Backend,
-        f,
-        args...;
-        optimizer = Inference,
-        kw...
-    )
-
+function compile(backend::Backend, f, args...; kw...)
     # Build the nGraph computation graph
     trace = snoop(f, args...)
 
-    # build the optimizer and get the implicit input and output parameters
-    opt, opt_inputs, opt_outputs = apply!(backend, optimizer, trace)
-
     # pass the trace as well as the optimizer arguments to create the executable.
-    return make(backend, trace, opt, opt_inputs, opt_outputs; kw...)
+    return make(backend, trace; kw...)
 end
 
 """
@@ -165,13 +165,9 @@ end
 #
 # Returns an argument named tuple that is given to the next stage of compilation.
 function snoop(f, args...)
-    ctx = SnoopCtx(metadata = SnoopMeta())
+    ctx = TraceCtx(metadata = TraceMetadata())
 
-    # Record the parameters
-    flux_parameters = Flux.params(f)
-    for p in Flux.params(f)
-        ctx.metadata.parameters[p] = nothing
-    end
+    # TODO: Reword parameters to how it works in Flux 10
 
     # Extract the inputs
     inputs = collect(Node.(args))
@@ -192,36 +188,38 @@ function snoop(f, args...)
     )
 end
 
-function make(backend::Backend, trace, request, opt_inputs, opt_outputs; kw...)
+function make(backend::Backend, trace; kw...)
     # Create an nGraph Executable
     ex = compile(
         backend,
-        ParameterVector(trace.inputs..., opt_inputs...),
-        NodeVector(trace.outputs..., trace.implicit_outputs..., opt_outputs...);
+        [trace.inputs; opt_inputs]
+        [trace.outputs; trace.implicit_outputs; opt_outputs],
         kw...
     )
 
     # Create TensorViews for each of the inputs and outputs
-    input_tensors = Tuple(TensorView.(Ref(backend), trace.args))
-    output_tensors = Tuple(TensorView.(Ref(backend), trace.outputs))
-    secondary_tensors = TensorView.(Ref(backend), trace.implicit_outputs)
+    input_tensors = Tensor.(Ref(backend), trace.args)
+    output_tensors = Tuple(Tensor.(Ref(backend), trace.outputs))
+    secondary_tensors = Tensor.(Ref(backend), trace.implicit_outputs)
 
-    # Instantiate to optimizer, including its Tensor Views
-    opt = fulfill(backend, request)
-
-    return FluxExecutable(ex, opt, input_tensors, output_tensors, secondary_tensors)
+    return TracedExecutable(
+        ex,
+        opt,
+        input_tensors,
+        output_tensors,
+        secondary_tensors
+    )
 end
 
-struct FluxExecutable{B,T,M,N}
-    ex::Executable{B}
-    optimizer::T
-    inputs::NTuple{M,TensorView}
-    outputs::NTuple{N,TensorView}
-    secondary::Vector{TensorView}
+struct TracedExecutable{O}
+    ex::Executable
+    inputs::Vector{Tensor}
+    outputs::NTuple{O,Tensor}
+    secondary::Vector{Tensor}
 end
 
-splat_inputs(fex::FluxExecutable) = Iterators.flatten((fex.inputs, getinputs(fex.optimizer)))
-splat_outputs(fex::FluxExecutable) = Iterators.flatten((fex.outputs, fex.secondary, getoutputs(fex.optimizer)))
+allinputs(x::TracedExecutable) = x.inputs
+alloutputs(x::TracedExecutable) = Iterators.flatten(x.outputs, x.secondary)
 
 function (ex::FluxExecutable)()
     inputs = Any[getpointer(i) for i in splat_inputs(ex)]
@@ -230,9 +228,6 @@ function (ex::FluxExecutable)()
     # Since we're passing wrapped type to C++, we have to cast them to Any's which is
     # kind of gross - but w/e
     ex.ex(inputs, outputs)
-
-    # Perform any updates required by the optimizer.
-    update!(ex.optimizer)
     return untuple(ex.outputs)
 end
 

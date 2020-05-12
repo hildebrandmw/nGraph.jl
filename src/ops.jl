@@ -2,41 +2,95 @@
 ##### Helper Functions
 #####
 
+# Exected transformation:
+#
+# @op f(a,b,c) -> Node(@ngraphcall f(a,b,c))
+# @op T f(a,b,c) -> Node{T}(@ngraphcall f(a,b,c))
+# @op T N f(a,b,c) -> Node(T,N)(@ngraphcall f(a,b,c))
+"""
+    @op [T] [N] fn(args)
 
-# Make the signature match the Flux signature
-expand(N, i::Tuple) = i
-expand(N, i::Integer) = ntuple(_ -> i, N)
+Make an Op call into the nGraph library.
+Automatically returns a `Node`, with optional type parameters `T` and `N`.
+"""
+macro op(x...)
+    if length(x) > 3
+        error("Expected at most 3 arguments to @op")
+    end
+    # Get the Optional Type and Dimensionality Parameters
+    T = length(x) > 1 ? x[1] : nothing
+    N = length(x) > 2 ? x[2] : nothing
+    expr = x[end]
 
-function expand(a::Node{T1}, b::Node{T2}) where {T1,T2}
-    # Promote types if needed
-    T3 = promote_type(T1, T2)
-    a = convert_eltype(T3, a)
-    b = convert_eltype(T3, b)
+    # Make sure this is a function call.
+    # wrap the `Lib` module around the op.
+    if expr.head != :call
+        error("@Op only support function calls.")
+    end
 
-    # Get the common axes for this object
-    shape = map(last, Base.Broadcast.combine_axes(a, b))
+    # Escape all but the function name.
+    # Since we forward this to the `@ngraphcall` macro, we apparently need to do this.
+    for i in 2:length(expr.args)
+        expr.args[i] = esc(expr.args[i])
+    end
 
-    # Make broadcasts if needed.
-    a = (size(a) == shape) ? a : broadcast(a, shape)
-    b = (size(b) == shape) ? b : broadcast(b, shape)
-
-    return a, b
+    # Prefix the node constructor.
+    params = []
+    isnothing(T) || push!(params, T)
+    isnothing(N) || push!(params, N)
+    prefix = isempty(params) ? :(Node) : :(Node{$(esc.(params)...)})
+    return :($prefix(@ngraphcall $expr))
 end
 
+#####
+##### Shape and element type promotion
+#####
+
+promote_eltype(x::Node{T}, y::Node{T}) where {T} = (x,y)
+function promote_eltype(x::Node{T1}, y::Node{T2}) where {T1,T2}
+    T = promote_type(T1, T2)
+    return convert_eltype.(T, (x,y))
+end
+
+function autobroadcast(x::Node, y::Node)
+    # Get the common axes for this object
+    shape = map(last, Base.Broadcast.combine_axes(x, y))
+
+    # Make broadcasts if needed.
+    x = (size(x) == shape) ? x : broadcast(x, shape)
+    y = (size(y) == shape) ? y : broadcast(y, shape)
+    return (x, y)
+end
+
+function homogenize(x::Node, y::Node)
+    x, y = promote_eltype(x, y)
+    return autobroadcast(x, y)
+end
+
+#####
+##### Broadcasting machinery
+#####
+
 # Define _forward to allow dispatching to alternative implementations of common base
-# operations
+# operations.
+#
+# We basically shortcircuit the lazy base implementations.
 _forward(f) = f
 _forward(::typeof(*)) = multiply
 #_forward(::typeof(NNlib.σ)) = _sigmoid
 _forward(::typeof(/)) = divide
 
-Base.broadcasted(f, x::Node, y::Node) = _forward(f)(expand(x,y)...)
-Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(expand(x, Node(y))...)
-Base.broadcasted(f, x::AbstractArray, y::Node) = _forward(f)(expand(Node(x), y)...)
+Base.broadcasted(f, x::Node, y::Node) = _forward(f)(homogenize(x,y)...)
+Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(homogenize(x, Node(y))...)
+Base.broadcasted(f, x::AbstractArray, y::Node) = _forward(f)(homogenize(Node(x), y)...)
 Base.broadcasted(f, x::Node) = _forward(f)(x)
 
-Base.broadcasted(f, x::Node{T}, y::Number) where {T} = _forward(f)(expand(x, Node{T}(convert(T, y)))...)
-Base.broadcasted(f, x::Number, y::Node{T}) where {T} = _forward(f)(expand(Node{T}(convert(T, x)), y)...)
+function Base.broadcasted(f, x::Node{T}, y::Number) where {T}
+    return _forward(f)(homogenize(x, Node{T}(convert(T, y)))...)
+end
+function Base.broadcasted(f, x::Number, y::Node{T}) where {T}
+    return _forward(f)(homogenize(Node{T}(convert(T, x)), y)...)
+end
 
 Base.convert(::Type{Node{T,0}}, x::S) where {T,S <: Number} = Node{T,0}(convert(T, x))
 
@@ -48,11 +102,11 @@ Base.broadcasted(::typeof(copy), x::Node) = x
 ##### Parameter
 #####
 
-parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Int64[]))
+parameter(x::T) where {T} = @op T 0 op_parameter(T, Int64[])
 function parameter(::Type{T}, dims::NTuple{N,Int}) where {T,N}
     _shape = shape(dims)
     GC.@preserve _shape begin
-        node = Node{T,N}(Lib.op_parameter(Element(T)[], _shape))
+        node = @op T N op_parameter(T, _shape)
     end
     return node
 end
@@ -61,38 +115,31 @@ parameter(x::AbstractArray{T,N}) where {T,N} = parameter(T, size(x))
 parameter(::Type{T}, dims...) where {T} = parameter(T, dims)
 parameter(x::Node) = x
 
-# Begin Ops
+############################################################################################
 
 #####
 ##### Add
 #####
 
-add(a::N, b::N) where {N <: Node} = N(Lib.op_add(unwrap(a), unwrap(b)))
+add(a::U, b::U) where {T,N,U <: Node{T,N}} = @op T N op_add(a, b)
 Base.:+(a::Node, b::Node) = add(a,b)
 
-# #####
-# ##### AvgPool
-# #####
-#
-# function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
-#     # Convert to nGraph types
-#     window_shape = Shape(shape)
-#     strides = Strides(expand(N-2, stride))
-#     padding_below = Shape(expand(N-2, pad))
-#     padding_above = Shape(expand(N-2, pad))
-#
-#     ptr = Lib.op_avgpool(getpointer(x), window_shape, strides, padding_below, padding_above)
-#     return Node{T,N}(ptr)
-# end
-# Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
-#
-# #####
-# ##### BatchMatrixMultiply
-# #####
-#
-# bmm(a::Node{T,N}, b::Node{T,N}; transpose_a = false, transpose_b = false) where {T,N} =
-#     Node(Lib.op_batchdot(getpointer(a), getpointer(b), transpose_a, transpose_b))
-#
+#####
+##### AvgPool
+#####
+
+function avgpool(x::Node{T,N}, kernel; pad = 0, stride = kernel) where {T,N}
+    return @op T N op_avgpool(
+        x,
+        strides(N-2, stride),
+        shape(N-2, pad),
+        shape(N-2, pad),
+        shape(N-2, kernel),
+        false,
+    )
+end
+#Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
+
 # #####
 # ##### BatchNorm
 # #####
@@ -105,154 +152,74 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #         convert(Float64, ϵ)
 #     ))
 # end
-#
-# #####
-# ##### Broadcast
-# #####
-#
-# _broadcast_trailing(M,N) = [i for i in (M+1):N]
-# function Base.broadcast(
-#         a::Node{T,M},
-#         shape::NTuple{N,Int};
-#         axes = _broadcast_trailing(M,N)
-#     ) where {T,M,N}
-#
-#     # Construct the final shape from `shape`
-#     final_shape = Shape(shape)
-#     axis_set = AxisSet(axes, N)
-#
-#     return Node{T,N}(Lib.op_broadcast(getpointer(a), final_shape, axis_set))
-# end
-#
-# #####
-# ##### Concat
-# #####
-#
-# function concat(nodes::Vector{Node{T,N}}; dims::Integer = 1) where {T,N}
-#     # Flip dims for column -> row
-#     node = Lib.op_concat(NodeVector(nodes), N - dims)
-#     return Node{T,N}(node)
-# end
-#
-# Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
-#
-# #####
-# ##### Constants
-# #####
-#
-# constant(x::T) where {T} = Node{T,0}(Lib.op_constant(Element(T), Shape(), [x]))
-# constant(x::AbstractArray{T,N}) where {T,N} =
-#     Node{T,N}(Lib.op_constant(Element(T), Shape(size(x)), reshape(x, :)))
-#
-# #####
-# ##### Convert
-# #####
-#
-# convert_eltype(::Type{T}, x::Node{T}) where {T} = x
-# convert_eltype(::Type{T}, x::Node) where {T} = Node(Lib.op_convert(getpointer(x), Element(T)))
-#
-# #####
-# ##### Convolution
-# #####
-#
-# function NNlib.conv(x::Node{T,N}, w::Node{T,N}; stride = 1, pad = 0, dilation = 1) where {T,N}
-#     # Construct the convolution node.
-#     strides = Strides(expand(N-2, stride))
-#
-#     expand_pad = expand(2 * N, pad)
-#     padding_below = CoordinateDiff(expand_pad[1:2:length(expand_pad)])
-#     padding_above = CoordinateDiff(expand_pad[2:2:length(expand_pad)])
-#
-#     dilations = Strides(expand(N-2, dilation))
-#     node = Lib.op_convolution(
-#         getpointer(x),
-#         getpointer(w),
-#         strides,
-#         dilations,
-#         padding_above,
-#         padding_below
-#     )
-#
-#     return Node{T,N}(node)
-# end
-#
-# #####
-# ##### Deconvolution
-# #####
-#
-# function deconvolution(x::Node{T,N}, w::Node{T,N}, out_shape;
-#         stride = 1,
-#         pad = 0,
-#         dilation = 1
-#     ) where {T,N}
-#
-#     # see https://github.com/NervanaSystems/ngraph-mxnet-bridge/blob/master/src/ops/deconvolution.cc
-#     # for inspiration about how this thing came about.
-#     out_shape = Shape(out_shape)
-#     strides = Strides(expand(N-2, stride))
-#     padding = CoordinateDiff(expand(N-2, pad))
-#     dilations = Strides(expand(N-2, dilation))
-#     data_dilation = Strides(ntuple(i -> 1, N-2))
-#
-#     node = Node{T,N}(Lib.op_convolution_backprop_data(
-#         getpointer(out_shape),
-#         getpointer(w),
-#         getpointer(x),
-#         getpointer(strides),
-#         getpointer(dilations),
-#         getpointer(padding),
-#         getpointer(padding),
-#         getpointer(data_dilation),
-#     ))
-# end
-#
-# #####
-# ##### Divide
-# #####
-#
-# divide(a::Node{T,N}, b::Node{T,N}) where {T,N} =
-#     Node{T,N}(Lib.op_divide(getpointer(a), getpointer(b)))
-#
-# Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
-# Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
-#
-# #####
-# ##### Dot
-# #####
-#
-# # Reverse the order in the call to `Lib.op_dot` to account for row major/col major
-# # differences
-# dot(a::Node{T}, b::Node{T}, n) where {T,N,M} =
-#     Node(Lib.op_dot(getpointer(b), getpointer(a), convert(UInt, n)))
-#
-# # Fully Connected
-# Base.:*(w::Node, x::Node) = dot(w, x, 1)
-#
-# Base.:*(w::Node, x::AbstractArray) = w * Node(x)
-# Base.:*(w::AbstractArray, x::Node) = Node(w) * x
-#
-# # Methods defined to avoid method ambiguity in julia's dispatch
-# Base.:*(x::Node{T,2}, y::Node{T,2}) where {T} = dot(x, y, 1)
-# Base.:*(x::Node{T,2}, y::Node{T,1}) where {T} = dot(x, y, 1)
-#
-# Base.:*(x::AbstractArray{T,2}, y::Node{T,1}) where {T} = Node(x) * y
-# Base.:*(x::AbstractArray{T,2}, y::Node{T,2}) where {T} = Node(x) * y
-# Base.:*(x::Node{T,1}, y::AbstractArray{T,2}) where {T} = x * Node(y)
-# Base.:*(x::Node{T,2}, y::AbstractArray{T,2}) where {T} = x * Node(y)
-#
-# #####
-# ##### Embedding
-# #####
-#
-# function embedding(data::Node, weights)
-#     node = Node(Lib.op_embedding(
-#         getpointer(data .- 1),          # Need to subtract 1 to get to C++ base 0 indexing
-#         getpointer(Node(weights))
-#     ))
-#
-#     return node
-# end
-#
+
+#####
+##### Broadcast
+#####
+
+function Base.broadcast(a::Node{T,M}, like::Node{Int64,1}) where {T,M,N}
+    return @op T op_broadcast(a, like)
+end
+
+function Base.broadcast(a::Node{T}, dims::NTuple{N,Int64}) where {T,N}
+    return Base.broadcast(a, constant(shape(dims)))
+end
+
+#####
+##### Concat
+#####
+
+function concat(nodes::Vector{Node{T,N}}; dims::Integer = 1) where {T,N}
+    # Flip dims for column -> row
+    return @op T N op_concat(nodes, N - dims)
+end
+Base.cat(x::Node...; kw...) = concat(collect(x); kw...)
+
+#####
+##### Constants
+#####
+
+function constant(x::T) where {T}
+    A = Array{T,0}(undef)
+    A[] = x
+    return constant(A)
+end
+
+function constant(x::AbstractArray{T,N}) where {T,N}
+    # Reinterpret the `x` as a byte array
+    _x = collect(reinterpret(UInt8, reshape(x,:)))
+    GC.@preserve _x begin
+        node = @op T N op_constant(Element(T)[], shape(size(x)), _x)
+    end
+    return node
+end
+
+#####
+##### Convert
+#####
+
+convert_eltype(::Type{T}, x::Node{T}) where {T} = x
+function convert_eltype(::Type{T}, x::Node{U,N}) where {T,U,N}
+    @op T N op_convert(x, T)
+end
+
+#####
+##### Divide
+#####
+
+divide(a::Node{T,N}, b::Node{T,N}) where {T,N} = @op T N op_divide(a, b)
+Base.:/(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
+Base.://(a::Node{T,0}, b::Node{T,0}) where {T} = divide(a, b)
+
+#####
+##### Dot
+#####
+
+# Reverse the order in the call to `Lib.op_dot` to account for row major/col major
+# differences
+dot(a::Node{T}, b::Node{T}, n) where {T} = @op T op_dot(b, a, UInt(n))
+Base.:*(x::Node, y::Node) = dot(x, y, 1)
+
 # #####
 # ##### Indexing
 # #####
@@ -271,26 +238,26 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #
 #     return Node(Lib.op_slice(getpointer.((n, lb, ub))... ))
 # end
-#
-# #####
-# ##### GetOutput
-# #####
-#
-# get_output_element(x::Node, n) = Node(Lib.op_get_output_element(getpointer(x), convert(UInt, n-1)))
-#
-# #####
-# ##### Log
-# #####
-#
-# Base.log(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_log(getpointer(a)))
-#
-# #####
-# ##### Max
-# #####
-#
-# # The semantics between max and maximum are flipped around beween Julia and nGraph
-# Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(getpointer(a), getpointer(b)))
-#
+
+#####
+##### GetOutput
+#####
+
+goe(x::Node, n) = @op op_goe(x, convert(UInt64, n-1))
+
+#####
+##### Log
+#####
+
+Base.log(a::Node{T,N}) where {T,N} = @op T N op_log(a)
+
+#####
+##### Max
+#####
+
+# The semantics between max and maximum are flipped around beween Julia and nGraph
+Base.max(a::U, b::U) where {T,N, U <: Node{T,N}} = @op T N op_maximum(a, b)
+
 # #####
 # ##### MaxPool
 # #####
@@ -318,37 +285,27 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #     )
 #     return Node{T,N}(ptr)
 # end
-#
-# #####
-# ##### Multiply
-# #####
-#
-# multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_mul(getpointer(a), getpointer(b)))
-#
-# function Base.:*(a::Node{T,0}, b::U) where {T, U <: Number}
-#     R = promote_type(T,U)
-#     a = convert_eltype(R, a)
-#     b = constant(convert(R, b))
-#     return multiply(a, b)
-# end
-# Base.:*(b::U, a::Node{T,0}) where {U <: Number, T} = *(a, b)
-#
-# #####
-# ##### Minimum
-# #####
-#
-# # The `min` and `minimum` semantics are swapped between Julia and nGraph.
-# Base.minimum(a::N, b::N) where {N <: Node} = N(Lib.op_minimum(getpointer(a), getpointer(b)))
-# _forward(::typeof(min)) = minimum
-#
-# #####
-# ##### Negative
-# #####
-#
-# negative(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_negative(getpointer(a)))
-#
-# Base.:-(a::Node) = negative(a)
-#
+
+#####
+##### Multiply
+#####
+
+multiply(a::Node{T,N}, b::Node{T,N}) where {T,N} = @op T N op_mul(a, b)
+
+#####
+##### Minimum
+#####
+
+# The `min` and `minimum` semantics are swapped between Julia and nGraph.
+Base.min(a::Node{T,N}, b::Node{T,N}) where {T,N} = @op T N op_minimum(a, b)
+
+#####
+##### Negative
+#####
+
+negative(a::Node{T,N}) where {T,N} = @op T N op_negative(a)
+Base.:-(a::Node) = negative(a)
+
 # #####
 # ##### One Hot
 # #####
@@ -364,17 +321,7 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #         convert(UInt, N + 1 - onehot_index)
 #     ))
 # end
-#
-# #####
-# ##### Parameter
-# #####
-#
-# parameter(x::AbstractArray{T,N}) where {T,N} = Node(x)
-# parameter(::Type{T}, dims...) where {T} = parameter(T, convert.(Int, dims))
-# parameter(::Type{T}, dims::NTuple{N,Int}) where {T,N} = Node{T,N}(Lib.op_parameter(Element(T), Shape(dims)))
-# parameter(x::T) where {T} = Node{T,0}(Lib.op_parameter(Element(T), Shape(())))
-# parameter(x::Node) = x
-#
+
 # #####
 # ##### permutedims
 # #####
@@ -410,13 +357,7 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #     node = Lib.op_reshape(getpointer(x), av, shape)
 #     return Node{T,M}(node)
 # end
-#
-# #####
-# ##### Result
-# #####
-#
-# result(x::T) where {T <: Node} = T(Lib.op_result(getpointer(x)))
-#
+
 # #####
 # ##### Sigmoid
 # #####
@@ -473,15 +414,4 @@ Base.:+(a::Node, b::Node) = add(a,b)
 #     node = Lib.op_reshape(getpointer(a), av, shape)
 #     return Node{T,N}(node)
 # end
-#
-# #######################################################################################
-# #
-# # Custom ops
-# move(x::T, output = 1) where {T <: Node} = T(Lib.op_move(getpointer(x), convert(UInt, output-1)))
-#
-# moveasync(x::T, across::Node) where {T <: Node} = moveasync(x, 1, across)
-# moveasync(x::T, output, across::Node) where {T <: Node} =
-#     T(Lib.op_moveasync(getpointer(x), convert(UInt, output-1), getpointer(across)))
-#
-# convert_layout_to(x::Node, y::Node, i) =
-#     Node(Lib.op_cpu_convert_layout_to(getpointer(x), getpointer(y), convert(Int, i-1)))
+

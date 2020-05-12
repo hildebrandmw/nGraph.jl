@@ -65,30 +65,54 @@ end
 end
 
 @testset "Testing Backend" begin
-    backend = nGraph.Backend("CPU")
+    backend = nGraph.Backend{:CPU}()
     @test nGraph.version(backend) == "0.0.0"
 end
 
 @testset "Testing Tensor View" begin
-    backend = nGraph.Backend("CPU")
+    backend = nGraph.Backend{:CPU}()
     x = Array{Float32}(undef, 10, 10)
 
-    tv = nGraph.TensorView(backend, x)
+    tv = nGraph.Tensor(backend, x)
     @test parent(tv) === x
     @test eltype(tv) == eltype(parent(tv))
     @test sizeof(tv) == sizeof(parent(tv))
     @test size(tv) == size(parent(tv))
     println(devnull, tv)
 
-    # Construct a TensorView from a scalar.
-    tv = nGraph.TensorView(backend, 1.0)
+    # Construct a Tensor from a scalar.
+    tv = nGraph.Tensor(backend, 1.0)
     @test size(tv) == ()
     @test eltype(tv) == Float64
 
-    # Construct a TensorView from a Node
+    # Construct a Tensor from a Node
     node = nGraph.parameter(Int32, (20, 20))
-    tv = nGraph.TensorView(backend, node)
+    tv = nGraph.Tensor(backend, node)
     @test size(node) == size(parent(node)) == (20, 20)
     @test eltype(node) == eltype(parent(node)) == Int32
+end
+
+@testset "Testing Executable" begin
+    backend = nGraph.Backend{:CPU}()
+    a = rand(Float32, 10, 10)
+    b = rand(Float32, 10, 10)
+
+    na = nGraph.Node(a)
+    nb = nGraph.Node(b)
+
+    nz = na + nb
+
+    ex = nGraph.compile(backend, [na, nb], [nz])
+
+    # At this point, we should have an executable we can call.
+    # Create Tensor of the inputs and outputs and verify that the addition operation
+    # is the same in both Julia land and ngraph land.
+    tva = nGraph.Tensor(backend, a)
+    tvb = nGraph.Tensor(backend, b)
+    tvz = nGraph.Tensor(backend, nz)
+
+    ex([tva, tvb], [tvz])
+
+    @test isapprox(parent(tvz), a + b)
 end
 
