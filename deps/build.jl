@@ -32,12 +32,10 @@ nproc = parse(Int, read(`nproc`, String))
 
 cd(builddir)
 cmake_args = [
-    #"-DNGRAPH_USE_PREBUILT_LLVM=TRUE",
     "-DCMAKE_BUILD_TYPE=Release",
     "-DCMAKE_C_COMPILER=$CC",
     "-DCMAKE_CXX_COMPILER=$CXX",
     "-DCMAKE_INSTALL_PREFIX=$(joinpath(@__DIR__, "usr"))",
-    #"-DNGRAPH_TBB_ENABLE=FALSE", # causes build failure
 ]
 
 run(`cmake .. $cmake_args`)
@@ -54,17 +52,62 @@ end
 #####
 ##### cxxwrap library
 #####
-
 @info "Building Lib"
 
-# Path to the CxxWrap dependencies
 cxxhome = CxxWrap.prefix_path()
 juliahome = dirname(Base.Sys.BINDIR)
-make_args = [
-    "JULIA_HOME=$juliahome",
-    "CXXWRAP_HOME=$cxxhome",
-    "CC=$CC",
-    "CXX=$CXX",
+
+# Use Clang since it seems to get along better with Julia
+cxx = "clang++"
+
+cxxflags = [
+    "-g",
+    "-O3",
+    "-Wall",
+    "-fPIC",
+    "-std=c++17",
+    "-DPCM_SILENT",
+    "-DJULIA_ENABLE_THREADING",
+    "-Dexcept_EXPORTS",
+    # Surpress some warnings from Cxx
+    "-Wno-unused-variable",
+    "-Wno-unused-lambda-capture",
 ]
 
-run(`make $make_args -j $nproc `)
+includes = [
+    "-I$(joinpath(cxxhome, "include"))",
+    "-I$(joinpath(juliahome, "include", "julia"))",
+    "-I$(joinpath(@__DIR__, "usr", "include"))",
+]
+
+_libpath = joinpath(current_dir, "usr", "lib")
+_lib64path = joinpath(current_dir, "usr", "lib64")
+
+libpath = ispath(_libpath) ? _libpath : _lib64path
+
+loadflags = [
+    # Linking flags for Julia
+    "-L$(joinpath(juliahome, "lib"))",
+    "-Wl,--export-dynamic",
+    "-Wl,-rpath,$(joinpath(juliahome, "lib"))",
+    "-ljulia",
+    # Linking Flags for CxxWrap
+    "-L$(joinpath(cxxhome, "lib"))",
+    "-Wl,-rpath,$(joinpath(cxxhome, "lib"))",
+    "-lcxxwrap_julia",
+    # Linking Flags for nGraph
+    "-L$libpath",
+    "-Wl,-rpath,$libpath",
+    "-lngraph",
+]
+
+
+src = joinpath(current_dir, "ngraph-julia.cpp")
+so = joinpath(current_dir, "libngraph-julia.so")
+
+cmd = `$cxx $cxxflags $includes -shared $src -lpthread -o $so $loadflags`
+@show cmd
+run(cmd)
+
+
+#run(`make $make_args -j $nproc `)

@@ -113,6 +113,9 @@ Node(x::NodeCppType) = Node{eltype(x),ndims(x)}(x)
 Node(x::AbstractArray{T,N}) where {T,N} = Node{T,N}(x)
 Node{T,N}(x::AbstractArray{T,N}) where {T,N} = parameter(T, size(x))
 
+Node(x::T) where {T <: Number} = Node{T}(x)
+Node{T}(x::T) where {T <: Number} = Node{T,0}(fill(x))
+
 # Array style arguments
 Base.ndims(x::Node) = ndims(x.obj)
 

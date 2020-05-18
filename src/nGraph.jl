@@ -4,10 +4,10 @@ module nGraph
 using Random
 
 # external dependcies
-#import Cassette
+import Cassette
 #using Distributions
-#import Flux
-#import NNlib
+import Flux
+import NNlib
 import ProgressMeter
 
 using Dates
@@ -84,6 +84,6 @@ end
 
 include("types.jl")
 include("ops.jl")
-# include("flux/flux.jl")
+include("tracer/tracer.jl")
 
 end # module
