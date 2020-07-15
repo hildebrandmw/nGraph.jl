@@ -54,7 +54,7 @@ Base.:+(a::Node, b::Node) = add(a,b)
 ##### AvgPool
 #####
 
-function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
+function avgpool(x::Node{T,N}, shape::Tuple{Vararg{Integer,K}}; pad = 0, stride = shape) where {T,N,K}
     # Convert to nGraph types
     window_shape = Shape(shape)
     strides = Strides(expand(N-2, stride))
@@ -64,7 +64,9 @@ function avgpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N
     ptr = Lib.op_avgpool(getpointer(x), window_shape, strides, padding_below, padding_above)
     return Node{T,N}(ptr)
 end
-Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
+function Flux.meanpool(x::Node, shape::Tuple{Vararg{Integer,N}}; pad = 0, stride = shape) where {N}
+    return avgpool(x, shape; pad = pad, stride = stride)
+end
 
 #####
 ##### BatchMatrixMultiply
@@ -275,7 +277,7 @@ Base.max(a::T, b::T) where {T <: Node} = T(Lib.op_maximum(getpointer(a), getpoin
 ##### MaxPool
 #####
 
-function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
+function Flux.maxpool(x::Node{T,N}, shape::Tuple{Vararg{Integer,K}}; pad = 0, stride = shape) where {T,N,K}
     # Convert to nGraph types
     window_shape = Shape(shape)
     strides = Strides(expand(N-2, stride))
