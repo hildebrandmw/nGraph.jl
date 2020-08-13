@@ -2,24 +2,29 @@
 # `julia build_tarballs.jl --help` to see a usage message.
 using BinaryBuilder, Pkg
 
-name = "nGraph_jll"
-version = v"0.1.0"
+name = "ngraph"
+version = v"0.0.1"
 
 # Collection of sources required to complete build
 sources = [
-    GitSource("https://github.com/NervanaSystems/ngraph.git", "b8419c354e5fc70805f1501d7dfff533ac790bec")
+    GitSource("https://github.com/NervanaSystems/ngraph.git", "81ca5be950bb62b97c5f6f96616c9de5b39ebf45"),
+    GitSource("https://github.com/Kitware/Cmake.git", "dee2eff2cfb4d0743c5b2c3468e2b9227baff102")
 ]
 
 # Bash recipe for building across all platforms
 script = raw"""
 cd $WORKSPACE/srcdir
-cd ngraph
+cd Cmake
 mkdir build
 cd build
-which clang
-# Must set target to "" - otherwise, TBB gets confused
-target="" cmake .. -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=/opt/bin/clang -DCMAKE_CXX_COMPILER=/opt/bin/clang++ 
+cmake .. -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TARGET_TOOLCHAIN} -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
+make install
+cd ${WORKSPACE}/srcdir/ngraph
+mkdir build
+cd build
+${WORKSPACE}/destdir/bin/cmake ..     -DCMAKE_INSTALL_PREFIX=$prefix     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TARGET_TOOLCHAIN}     -DCMAKE_BUILD_TYPE=Release     -DNGRAPH_TBB_ENABLE=false     -DNGRAPH_CPU_CODEGEN_ENABLE=true
+export PATH="${PATH}:$(pwd)/src/resource"
 make -j$(nproc)
 make install
 exit
@@ -34,21 +39,21 @@ platforms = [
 
 # The products that we will ensure are always built
 products = [
-    LibraryProduct("libiomp5", :libiopm5),
     LibraryProduct("libdnnl", :libdnnl),
-    LibraryProduct("libngraph", :libngraph),
+    LibraryProduct("libinterpreter_backend", :libinterpreter_backend),
     LibraryProduct("libnop_backend", :libnop_backend),
-    LibraryProduct("libcodegen", :libcodegen),
-    LibraryProduct("libcpu_backend", :libcpu_backend),
-    LibraryProduct("libtbb", :libtbb),
-    LibraryProduct("libgcpu_backend", :libgcpu_backend),
+    LibraryProduct("libiomp5", :libiomp5),
     LibraryProduct("libmklml_intel", :libmklml_intel),
-    LibraryProduct("libinterpreter_backend", :libinterpreter_backend)
+    LibraryProduct("libcodegen", :libcodegen),
+    LibraryProduct("libeval_backend", :libeval_backend),
+    LibraryProduct("libcpu_backend", :libcpu_backend),
+    LibraryProduct("libngraph", :libngraph)
 ]
 
 # Dependencies that must be installed before this package can be built
-dependencies = Dependency[
+dependencies = [
+    Dependency(PackageSpec(name="OpenSSL_jll", uuid="458c3c95-2e84-50aa-8efc-19380b2a3a95"))
 ]
 
 # Build the tarballs, and possibly a `build.jl` as well.
-build_tarballs(ARGS, name, version, sources, script, platforms, products, dependencies; preferred_gcc_version = v"6.1.0")
+build_tarballs(ARGS, name, version, sources, script, platforms, products, dependencies; preferred_gcc_version = v"8.1.0")

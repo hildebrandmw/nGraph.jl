@@ -95,7 +95,7 @@ ngraph_convert(::Type{T}) where {T <: Number} = Element(T)[]
 #####
 
 const NodeCppType = Lib.CxxWrap.StdLib.SharedPtrAllocated{nGraph.Lib.Node}
-Base.ndims(x::NodeCppType) = length(@ngraphcall get_output_shape(x))
+Base.ndims(x::NodeCppType) = length(@ngraphcall get_output_shape(x, 0))
 Base.eltype(x::NodeCppType) = back(@ngraphcall get_output_element_type(x, 0))
 
 # Subtype AbstractArray to get all of the nice fallbacks.
@@ -121,7 +121,7 @@ Base.ndims(x::Node) = ndims(x.obj)
 
 function Base.size(x::Node)
     nd = ndims(x)
-    dims = @ngraphcall get_output_shape(x)
+    dims = @ngraphcall get_output_shape(x, 0)
     # Reversing is done on the ngraph side.
     return Tuple(Int.(reverse(dims)))
 end

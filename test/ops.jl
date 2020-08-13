@@ -105,28 +105,28 @@ end
         @test isapprox(parent(vZ), x ./ y)
     end
 
-    @testset "Concat" begin
-        x = randn(Float32, 10, 1)
-        y = randn(Float32, 10, 1)
-        z = randn(Float32, 10, 1)
+    # @testset "Concat" begin
+    #     x = randn(Float32, 10, 1)
+    #     y = randn(Float32, 10, 1)
+    #     z = randn(Float32, 10, 1)
 
-        X,Y,Z = nGraph.Node.((x,y,z))
+    #     X,Y,Z = nGraph.Node.((x,y,z))
 
-        # Concat along dimensions 1 and 2
-        A = cat(X,Y,Z; dims = 1)
-        @test size(A) == (30,1)
-        ex = nGraph.compile(backend, [X,Y,Z], [A])
-        vX,vY,vZ,vA = @tensors backend (x,y,z,A)
-        ex([vX,vY,vZ], [vA])
-        @test parent(vA) == cat(x,y,z; dims = 1)
+    #     # Concat along dimensions 1 and 2
+    #     A = cat(X,Y,Z; dims = 1)
+    #     @test size(A) == (30,1)
+    #     ex = nGraph.compile(backend, [X,Y,Z], [A])
+    #     vX,vY,vZ,vA = @tensors backend (x,y,z,A)
+    #     ex([vX,vY,vZ], [vA])
+    #     @test parent(vA) == cat(x,y,z; dims = 1)
 
-        B = cat(X,Y,Z; dims = 2)
-        @test size(B) == (10,3)
-        ex = nGraph.compile(backend, [X,Y,Z], [B])
-        vX,vY,vZ,vB = @tensors backend (x,y,z,B)
-        ex([vX,vY,vZ], [vB])
-        @test parent(vB) == cat(x,y,z; dims = 2)
-    end
+    #     B = cat(X,Y,Z; dims = 2)
+    #     @test size(B) == (10,3)
+    #     ex = nGraph.compile(backend, [X,Y,Z], [B])
+    #     vX,vY,vZ,vB = @tensors backend (x,y,z,B)
+    #     ex([vX,vY,vZ], [vB])
+    #     @test parent(vB) == cat(x,y,z; dims = 2)
+    # end
 
     @testset "Dot" begin
         # 1x1

@@ -105,13 +105,29 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
     /////
 
     mod.add_type<ngraph::Node>("Node")
-        .method("get_output_shape", [](const std::shared_ptr<ngraph::Node> node)
+        .method("get_output_size", &ngraph::Node::get_output_size)
+        .method("get_output_shape", [](
+            const std::shared_ptr<ngraph::Node> node,
+            int64_t index)
         {
-            return tovector(node->output(0).get_shape());
+            return tovector(node->output(index).get_shape());
         })
         .method("get_output_element_type", &ngraph::Node::get_output_element_type)
         .method("get_name", &ngraph::Node::get_name)
         .method("description", &ngraph::Node::description);
+
+    /////
+    ///// NodeOutput
+    /////
+
+    mod.add_type<ngraph::Output<ngraph::Node>>("NodeOutput")
+        .constructor<const std::shared_ptr<ngraph::Node>&,size_t>()
+        .method("get_node", &ngraph::Output<ngraph::Node>::get_node_shared_ptr)
+        .method("get_index", &ngraph::Output<ngraph::Node>::get_index)
+        .method("get_shape", [](const ngraph::Output<ngraph::Node> output)
+        {
+            return tovector(output.get_shape());
+        });
 
     // We occaisionally hand back `std::vectors` of `Node` shared_pointers.
     // Here, we opt into the stl in CxxWrap.
@@ -297,16 +313,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return makeop(v1::Broadcast, arg, target_shape);
     });
 
-    mod.method("op_concat", [](
-        const jlcxx::ArrayRef<std::shared_ptr<ngraph::Node>> jl_nodes,
-        int64_t concatenation_axis)
-    {
-        return makeop(
-            v0::Concat,
-            construct<ngraph::NodeVector>(jl_nodes),
-            concatenation_axis
-        );
-    });
+    // mod.method("op_concat", [](
+    //     const jlcxx::ArrayRef<std::shared_ptr<ngraph::Node>> jl_nodes,
+    //     int64_t concatenation_axis)
+    // {
+    //     return makeop(
+    //         v0::Concat,
+    //         construct<ngraph::NodeVector>(jl_nodes),
+    //         concatenation_axis
+    //     );
+    // });
 
     // Strategy for constants,
     // pass the julia array as an array of UInt8s - then we can use reinterpret-cast to
@@ -375,12 +391,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod)
         return makeop(v0::Dot, arg0, arg1, reduction_axes_count);
     });
 
-    mod.method("op_goe", [](
-        const std::shared_ptr<ngraph::Node>& arg,
-        uint64_t n)
-    {
-        return makeop(v0::GetOutputElement, arg, n);
-    });
+    //mod.method("op_goe", [](
+    //    const std::shared_ptr<ngraph::Node>& arg,
+    //    uint64_t n)
+    //{
+    //    return makeop(v1::GetOutputElement, arg, n);
+    //});
 
     mod.method("op_log", [](const std::shared_ptr<ngraph::Node>& arg)
     {
