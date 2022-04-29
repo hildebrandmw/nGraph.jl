@@ -19,7 +19,7 @@ untuple(x::Tuple{T}) where {T} = first(x)
 By default, becomes a no-op. When executed under [`TraceCtx`](@ref), registers `x` as a
 hidden output of a ngraph function.
 """
-__register(x::Node) = nothing
+__register(::Node) = nothing
 
 #####
 ##### Cassette Magic
@@ -59,7 +59,7 @@ istraining(x::TraceCtx) = x.metadata.training
 #####
 
 # Hijack Node constructors from Arrays
-function Cassette.overdub(ctx::TraceCtx, f::Type{Node{T,N}}, x::AbstractArray) where {T,N}
+function Cassette.overdub(ctx::TraceCtx, ::Type{Node{T,N}}, x::AbstractArray) where {T,N}
     # Check if this array is a parameter.
     # If so, get our cached input for it.
     node = get(ctx.metadata.array_to_node, x, nothing)
@@ -102,8 +102,8 @@ Cassette.overdub(::TraceCtx, ::typeof(reverse), args...) = reverse(args...)
 # Cassette.overdub(ctx::TraceCtx, f::Flux.BatchNorm, args...) =
 #     Cassette.overdub(ctx, _batchnorm_impl, f, args...)
 
-# Skip recursing initialization calls - recursing turns out to take a very, very long time.
-Cassette.overdub(ctx::TraceCtx, f::typeof(rand), args...) = f(args...)
+# Short circuits to reduce compile times
+Cassette.overdub(::TraceCtx, f::typeof(rand), args...) = f(args...)
 #Cassette.overdub(ctx::TraceCtx, f::typeof(Flux.glorot_normal), args...) = f(args...)
 #Cassette.overdub(ctx::TraceCtx, f::typeof(Flux.glorot_uniform), args...) = f(args...)
 
@@ -192,11 +192,12 @@ function snoop(f, parameters::Flux.Params, x...; training = false, kw...)
 end
 
 function make(backend::Backend, trace; training = false, kw...)
+    (; inputs, parameter_nodes, outputs, implicit_outputs, args) = trace
     # TODO: Reimplement training
 
     # Create an nGraph Executable
-    allinputs = [trace.inputs; trace.parameter_nodes]
-    alloutputs = [trace.outputs; trace.implicit_outputs]
+    allinputs = [inputs; parameter_nodes]
+    alloutputs = [outputs; implicit_outputs]
 
     ex = compile(
         backend,
@@ -206,9 +207,9 @@ function make(backend::Backend, trace; training = false, kw...)
     )
 
     # Create TensorViews for each of the inputs and outputs
-    input_tensors = Tensor.(Ref(backend), trace.args)
-    output_tensors = Tuple(Tensor.(Ref(backend), trace.outputs))
-    implicit_output_tensors = Tensor.(Ref(backend), trace.implicit_outputs)
+    input_tensors = Tensor.(Ref(backend), args)
+    output_tensors = Tuple(Tensor.(Ref(backend), outputs))
+    implicit_output_tensors = isempty(implicit_outputs) ? Tensor[] : Tensor.(Ref(backend), implicit_outputs)
 
     return CallableFunction(
         ex,

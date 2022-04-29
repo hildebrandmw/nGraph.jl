@@ -11,9 +11,12 @@
 # between column major and row major are made.
 #
 # nGraph Ordered Types shadowed
-_reversed(x) = [Int64(i) for i in reverse(x)]
+_reversed(x) = Int64[Int64(i) for i in reverse(x)]
 shape(x) = _reversed(x)
 strides(x) = _reversed(x)
+
+#shape(::Tuple{}) = Int64[]
+#strides(::Tuple{}) = Int64[]
 
 # It is convenient to construct Shape, Strides etc. from Tuples, Numbers, Vectors etc.
 # Here, is the machinery that does the dispatch.
@@ -104,7 +107,7 @@ struct Node{T,N} <: AbstractArray{T,N}
 end
 ngraph_convert(x::Node) = x.obj
 
-Base.show(io::IO, x::Node{T,N}) where {T,N} = println(io, "Node{$T,$N} - $(name(x))")
+Base.show(io::IO, x::Node{T,N}) where {T,N} = print(io, "Node{$T,$N} - $(name(x))")
 Base.display(x::Node) = show(stdout, x)
 
 Node{T}(x::NodeCppType) where {T} = Node{T,ndims(x)}(x)

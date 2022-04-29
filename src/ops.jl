@@ -30,7 +30,7 @@ macro op(x...)
 
     # Escape all but the function name.
     # Since we forward this to the `@ngraphcall` macro, we apparently need to do this.
-    for i in 2:length(expr.args)
+    for i = 2:length(expr.args)
         expr.args[i] = esc(expr.args[i])
     end
 
@@ -46,10 +46,10 @@ end
 ##### Shape and element type promotion
 #####
 
-promote_eltype(x::Node{T}, y::Node{T}) where {T} = (x,y)
+promote_eltype(x::Node{T}, y::Node{T}) where {T} = (x, y)
 function promote_eltype(x::Node{T1}, y::Node{T2}) where {T1,T2}
     T = promote_type(T1, T2)
-    return convert_eltype.(T, (x,y))
+    return convert_eltype.(T, (x, y))
 end
 
 function autobroadcast(x::Node, y::Node)
@@ -71,28 +71,38 @@ end
 ##### Broadcasting machinery
 #####
 
+
 # Define _forward to allow dispatching to alternative implementations of common base
 # operations.
 #
 # We basically shortcircuit the lazy base implementations.
 _forward(f) = f
 _forward(::typeof(*)) = multiply
-#_forward(::typeof(NNlib.σ)) = _sigmoid
+_forward(::typeof(+)) = add
+_forward(::typeof(-)) = subtract
+_forward(::typeof(^)) = power
+_forward(::typeof(NNlib.σ)) = sigmoid
 _forward(::typeof(/)) = divide
 
-Base.broadcasted(f, x::Node, y::Node) = _forward(f)(homogenize(x,y)...)
-Base.broadcasted(f, x::Node, y::AbstractArray) = _forward(f)(homogenize(x, Node(y))...)
-Base.broadcasted(f, x::AbstractArray, y::Node) = _forward(f)(homogenize(Node(x), y)...)
+# Use an indirection that usually promotes to constants, but allows the tracer to
+# override to parameters.
+constant_hook(x) = constant(x)
+
+Base.broadcasted(f, x::Node, y::Node) = _forward(f)(homogenize(x, y)...)
+Base.broadcasted(f, x::Node, y::AbstractArray) =
+    _forward(f)(homogenize(x, constant_hook(y))...)
+Base.broadcasted(f, x::AbstractArray, y::Node) =
+    _forward(f)(homogenize(constant_hook(x), y)...)
 Base.broadcasted(f, x::Node) = _forward(f)(x)
 
 function Base.broadcasted(f, x::Node{T}, y::Number) where {T}
-    return _forward(f)(homogenize(x, Node{T}(convert(T, y)))...)
+    return _forward(f)(homogenize(x, constant_hook(convert(T, y)))...)
 end
 function Base.broadcasted(f, x::Number, y::Node{T}) where {T}
-    return _forward(f)(homogenize(Node{T}(convert(T, x)), y)...)
+    return _forward(f)(homogenize(constant_hook(convert(T, x)), y)...)
 end
 
-Base.convert(::Type{Node{T,0}}, x::S) where {T,S <: Number} = Node{T,0}(convert(T, x))
+Base.convert(::Type{Node{T,0}}, x::S) where {T,S<:Number} = Node{T,0}(convert(T, x))
 
 # Special case element-wise copy - this gets around an issue in Metalhead's ResNet
 # implementation.
@@ -102,7 +112,7 @@ Base.broadcasted(::typeof(copy), x::Node) = x
 ##### Parameter
 #####
 
-parameter(x::T) where {T} = @op T 0 op_parameter(T, Int64[])
+parameter(::T) where {T} = @op T 0 op_parameter(T, Int64[])
 function parameter(::Type{T}, dims::NTuple{N,Int}) where {T,N}
     _shape = shape(dims)
     GC.@preserve _shape begin
@@ -121,8 +131,8 @@ parameter(x::Node) = x
 ##### Add
 #####
 
-add(a::U, b::U) where {T,N,U <: Node{T,N}} = @op T N op_add(a, b)
-Base.:+(a::Node, b::Node) = add(a,b)
+add(a::U, b::U) where {T,N,U<:Node{T,N}} = @op T N op_add(a, b)
+Base.:+(a::Node, b::Node) = add(a, b)
 
 #####
 ##### AvgPool
@@ -131,14 +141,14 @@ Base.:+(a::Node, b::Node) = add(a,b)
 function avgpool(x::Node{T,N}, kernel; pad = 0, stride = kernel) where {T,N}
     return @op T N op_avgpool(
         x,
-        strides(N-2, stride),
-        shape(N-2, pad),
-        shape(N-2, pad),
-        shape(N-2, kernel),
+        strides(N - 2, stride),
+        shape(N - 2, pad),
+        shape(N - 2, pad),
+        shape(N - 2, kernel),
         false,
     )
 end
-#Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
+Flux.meanpool(x::Node, args...; kw...) = avgpool(x, args...; kw...)
 
 # #####
 # ##### BatchNorm
@@ -187,7 +197,7 @@ end
 
 function constant(x::AbstractArray{T,N}) where {T,N}
     # Reinterpret the `x` as a byte array
-    _x = collect(reinterpret(UInt8, reshape(x,:)))
+    _x = collect(reinterpret(UInt8, reshape(x, :)))
     GC.@preserve _x begin
         node = @op T N op_constant(Element(T)[], shape(size(x)), _x)
     end
@@ -201,6 +211,27 @@ end
 convert_eltype(::Type{T}, x::Node{T}) where {T} = x
 function convert_eltype(::Type{T}, x::Node{U,N}) where {T,U,N}
     @op T N op_convert(x, T)
+end
+
+#####
+##### Convolution
+#####
+
+function convolution(
+    x::Node{T,N},
+    weight::Node{T,N};
+    stride = 1,
+    padding = 0,
+    dilation = 1,
+) where {T,N}
+    return @op T N op_convolution(
+        x,
+        weight,
+        strides(N - 2, stride),
+        shape(N - 2, padding),
+        shape(N - 2, padding),
+        shape(N - 2, dilation),
+    )
 end
 
 #####
@@ -229,21 +260,20 @@ Base.:*(x::Node, y::Node) = dot(x, y, 1)
 #
 # _ub(bound, i) = i
 # _ub(bound, ::Colon) = bound
-# function Base.getindex(n::Node{T,N}, args...) where {T,N}
-#     sz = size(n)
+# function Base.getindex(x::Node{T,N}, args...) where {T,N}
+#     sz = size(x)
 #     # Subtract 1 from the lower bound since the lower bounds are inclusive in ngraph.
 #     # Leave the upper bounds as is since the upper-bounds are exclusive.
-#     lb = Coordinate(map(_lb, args) .- 1)
-#     ub = Coordinate(ntuple(i -> _ub(sz[i], args[i]), length(args)))
-#
-#     return Node(Lib.op_slice(getpointer.((n, lb, ub))... ))
+#     lb = map(_lb, args) .- 1
+#     ub = ntuple(i -> _ub(sz[i], args[i]), Val(length(args)))
+#     return @op T N op_slice(x, shape(lb), shape(ub))
 # end
 
 #####
 ##### GetOutput
 #####
 
-goe(x::Node, n) = @op op_goe(x, convert(UInt64, n-1))
+#goe(x::Node, n) = @op op_goe(x, convert(UInt64, n-1))
 
 #####
 ##### Log
@@ -256,12 +286,23 @@ Base.log(a::Node{T,N}) where {T,N} = @op T N op_log(a)
 #####
 
 # The semantics between max and maximum are flipped around beween Julia and nGraph
-Base.max(a::U, b::U) where {T,N, U <: Node{T,N}} = @op T N op_maximum(a, b)
+Base.max(a::U, b::U) where {T,N,U<:Node{T,N}} = @op T N op_maximum(a, b)
 
-# #####
-# ##### MaxPool
-# #####
-#
+#####
+##### MaxPool
+#####
+
+function maxpool(x::Node{T,N}, kernel; pad = 0, stride = kernel) where {T,N}
+    return @op T N op_maxpool(
+        x,
+        strides(N - 2, stride),
+        shape(N - 2, pad),
+        shape(N - 2, pad),
+        shape(N - 2, kernel),
+    )
+end
+Flux.maxpool(x::Node, args...; kw...) = maxpool(x, args...; kw...)
+
 # function Flux.maxpool(x::Node{T,N}, shape::Tuple; pad = 0, stride = shape) where {T,N}
 #     # Convert to nGraph types
 #     window_shape = Shape(shape)
@@ -307,103 +348,88 @@ negative(a::Node{T,N}) where {T,N} = @op T N op_negative(a)
 Base.:-(a::Node) = negative(a)
 
 # #####
-# ##### One Hot
-# #####
-#
-# function onehot(x::Node{T,N}, max_index, onehot_index) where {T,N}
-#     # Create the output size from `max_index` and `onehot_index`
-#     sz = size(x)
-#     output_sz = collect(splicein(sz, max_index, onehot_index))
-#
-#     return Node{T,N+1}(Lib.op_onehot(
-#         getpointer(x .- one(T)),
-#         Shape(output_sz),
-#         convert(UInt, N + 1 - onehot_index)
-#     ))
-# end
-
-# #####
 # ##### permutedims
 # #####
-#
-# function Base.permutedims(x::N, perm) where {N <: Node}
-#     av = AxisVector(perm, length(perm))
-#     shape = Shape([size(x)[i] for i in perm])
-#     return N(Lib.op_reshape(getpointer(x), av, shape))
-# end
-#
-# #####
-# ##### Power
-# #####
-#
-# power(a::N, b::N) where {N <: Node} = N(Lib.op_parameter(getpointer(a), getpointer(b)))
-# Base.:^(a::N, b::N) where {N <: Node} = power(a, b)
-#
-# #####
-# ##### Relu
-# #####
-#
-# Flux.relu(a::Node{T,N}) where {T,N} = Node{T,N}(Lib.op_relu(getpointer(a)))
-#
-# #####
-# ##### Reshape
-# #####
-#
-# # NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon`
-# # preprocessing for us
-# function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
-#     av = AxisVector(1:N, N)
-#     shape = Shape(dims)
-#     node = Lib.op_reshape(getpointer(x), av, shape)
-#     return Node{T,M}(node)
+
+# function Base.permutedims(x::Node{T,N}, permutation::NTuple{N,Int}) where {N,T}
+#     newsize = ntuple(i -> size(x, permutation[i]), Val(N))
+#     return @op T N op_reshape(x, collect(permutation .- 1), shape(newsize))
 # end
 
-# #####
-# ##### Sigmoid
-# #####
-#
-# _sigmoid(x::N) where {N <: Node} = N(Lib.op_sigmoid(getpointer(x)))
-#
-# #####
-# ##### Softmax
-# #####
-#
-# function Flux.softmax(x::Node{T,N}; axes = 1) where {T,N}
-#     av = AxisSet(axes, N)
-#     node = Lib.op_softmax(getpointer(x), av)
-#     return Node{T,N}(node)
-# end
-#
+#####
+##### Power
+#####
+
+power(a::Node{T,N}, b::Node{T,N}) where {T,N} = @op T N op_power(a, b)
+Base.:^(a::N, b::N) where {N<:Node} = power(a, b)
+
+#####
+##### Relu
+#####
+
+relu(x::Node{T,N}) where {T,N} = @op T N op_relu(x)
+Flux.relu(x::Node) = relu(x)
+
+#####
+##### Reshape
+#####
+
+# NOTE:We're hijacking an internal Base function here to do all of the `Base.Colon`
+# preprocessing for us
+function Base._reshape(x::Node{T,N}, dims::NTuple{M,Int}) where {T,N,M}
+    return @op T M op_reshape(x, collect(0:(N - 1)), shape(dims))
+end
+
+#####
+##### Sigmoid
+#####
+
+sigmoid(x::Node{T,N}) where {T,N} = @op T N op_sigmoid(x)
+
+#####
+##### Softmax
+#####
+
+function softmax(x::Node{T,N}; dims = 1) where {T,N}
+    return @op T N op_softmax(x, N - dims)
+end
+Flux.softmax(x::Node; kw...) = softmax(x; kw...)
+
 # #####
 # ##### Sqrt
 # #####
 #
 # Base.sqrt(x::N) where {N <: Node} = N(Lib.op_sqrt(getpointer(x)))
-#
-# #####
-# ##### Subtract
-# #####
-#
-# subtract(a::N, b::N) where {N <: Node} = N(Lib.op_subtract(getpointer(a), getpointer(b)))
-# Base.:-(a::N, b::N) where {N <: Node} = subtract(a, b)
-#
-# #####
-# ##### Sum
-# #####
-#
-# # Default to reducing along all dimensions
-# function Base.sum(x::Node{T,N}; axes = 1:N ) where {T,N}
-#     as = AxisSet(axes, N)
-#     node = Lib.op_sum(getpointer(x), as)
-#     return Node{T, N - length(axes)}(node)
-# end
-#
-# #####
-# ##### Tanh
-# #####
-#
-# Base.tanh(a::N) where {N <: Node} = N(Lib.op_tanh(getpointer(a)))
-#
+
+#####
+##### Subtract
+#####
+
+subtract(a::Node) = negative(a)
+subtract(a::Node{T,N}, b::Node{T,N}) where {T,N} = @op T N op_subtract(a, b)
+Base.:-(a::N, b::N) where {N<:Node} = subtract(a, b)
+
+#####
+##### Sum
+#####
+
+# Default to reducing along all dimensions
+function _sum(x::Node{T,N}, ::Colon) where {T,N}
+    return @op T 0 op_sum(x, collect(0:(N - 1)))
+end
+
+function _sum(x::Node{T,N}, dims::Union{Tuple,AbstractArray}) where {T,N}
+    return @op T op_sum(x, N .- collect(dims))
+end
+
+function _sum(x::Node{T,N}, dims::Integer) where {T,N}
+    return @op T (N - 1) op_sum(x, [N - dims])
+end
+
+function Base.sum(x::Node{T,N}; dims = :) where {T,N}
+    return _sum(x, dims)
+end
+
 # #####
 # ##### Transpose
 # #####
@@ -414,4 +440,4 @@ Base.:-(a::Node) = negative(a)
 #     node = Lib.op_reshape(getpointer(a), av, shape)
 #     return Node{T,N}(node)
 # end
-
+#
