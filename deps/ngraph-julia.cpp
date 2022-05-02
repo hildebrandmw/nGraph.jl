@@ -54,6 +54,10 @@ auto tovector(ngraph::AxisSet& x)
     return x.to_vector();
 }
 
+// Since C++ does not allow partial function template specialization, we use this
+// intermediate `type` struct to propagate type information into function arguments
+// in order to correctly dispatch between the various ngraph `std::vector` derived
+// classes and other constructs like `ngraph::AxisSet`.
 template <typename T>
 struct type{};
 
