@@ -31,7 +31,7 @@ struct TraceMetadata
     training::Bool
 
     # Mapping of a Parameter array to nGraph Node
-    array_to_node::IdDict{Any, Node}
+    array_to_node::IdDict{Any,Node}
 
     # Keep track of the constants we have created.
     constants::IdDict{Any,Node}
@@ -41,13 +41,11 @@ struct TraceMetadata
 end
 
 function TraceMetadata(array_to_node, training::Bool)
-    return TraceMetadata(
-        training,
-        array_to_node,
-        IdDict{Any,Node}(),
-        Node[],
-    )
+    return TraceMetadata(training, array_to_node, IdDict{Any,Node}(), Node[])
 end
+
+get_implicit_outputs(metadata::TraceMetadata) = metadata.implicit_outputs
+get_implicit_outputs(ctx::TraceCtx) = get_implicit_outputs(ctx.metadata)
 
 # Flag to indicate if we are training or not.
 #
@@ -58,13 +56,11 @@ istraining(x::TraceCtx) = x.metadata.training
 ##### Cassette Overdubs
 #####
 
-# Hijack Node constructors from Arrays
-function Cassette.overdub(ctx::TraceCtx, ::Type{Node{T,N}}, x::AbstractArray) where {T,N}
+function Base.get(ctx::TraceCtx, x::AbstractArray) where {T,N}
     # Check if this array is a parameter.
     # If so, get our cached input for it.
     node = get(ctx.metadata.array_to_node, x, nothing)
     if !isnothing(node)
-        @assert isa(node, Node{T,N})
         return node
     end
 
@@ -75,6 +71,17 @@ function Cassette.overdub(ctx::TraceCtx, ::Type{Node{T,N}}, x::AbstractArray) wh
         ctx.metadata.constants[x] = node
     end
     return node
+end
+
+function Base.get(::Type{Node{T,N}}, ctx::TraceCtx, x::AbstractArray) where {T,N}
+    node = get(ctx, x)
+    @assert isa(node, Node{T,N})
+    return node
+end
+
+# Hijack Node constructors from Arrays
+function Cassette.overdub(ctx::TraceCtx, ::Type{Node{T,N}}, x::AbstractArray) where {T,N}
+    return get(Node{T,N}, ctx, x)
 end
 
 # Do not hijack creating nodes from nodes.
@@ -92,10 +99,19 @@ Cassette.overdub(::TraceCtx, ::typeof(reverse), args...) = reverse(args...)
 # # Hijack these layers
 # Cassette.overdub(ctx::TraceCtx, f::Flux.Dense, args...) =
 #     Cassette.overdub(ctx, _dense_impl, f, args...)
-#
-# Cassette.overdub(ctx::TraceCtx, f::Flux.Conv, args...) =
-#     Cassette.overdub(ctx, _conv_impl, f, args...)
-#
+
+function Cassette.overdub(ctx::TraceCtx, f::T, x) where {T<:Union{Flux.Conv,Flux.CrossCor}}
+    return convolution_implementation(
+        x,
+        get(ctx, f.weight),
+        get(ctx, f.bias);
+        f.stride,
+        f.pad,
+        f.dilation,
+        activation = f.σ,
+    )
+end
+
 # Cassette.overdub(ctx::TraceCtx, f::Flux.CrossCor, args...) =
 #     Cassette.overdub(ctx, _conv_impl, f, args...)
 #
@@ -136,18 +152,17 @@ Traced parameters from a compiled function: `f(args...)`.
 
 """
 struct Trace
-    inputs::Vector{Node}
-    outputs::Vector{Node}
-    implicit_outputs::Vector{Node}
+    input_arrays::Vector{Any}
+    input_nodes::Vector{Node}
+    output_nodes::Vector{Node}
+    implicit_output_nodes::Vector{Node}
 
     # Record of what is a parameter
-    parameters::Flux.Params
+    parameter_arrays::Vector{Any}
     parameter_nodes::Vector{Node}
 
-    array_to_node::IdDict{Any, Node}
-    node_to_array::IdDict{Node, Any}
-
-    args::Vector
+    array_to_node::IdDict{Any,Node}
+    node_to_array::IdDict{Node,Any}
 end
 
 # Step 1 of compilation - trace the provided function with the provided arguments to
@@ -155,11 +170,11 @@ end
 #
 # Returns an argument named tuple that is given to the next stage of compilation.
 snoop(f, x...; kw...) = snoop(f, Flux.Params(), x...; kw...)
-function snoop(f, parameters::Flux.Params, x...; training = false, kw...)
+function snoop(f, parameters::Flux.Params, xs...; training = false, kw...)
     # Extract the inputs and other parameters
-    inputs = collect(Node.(x))
-
-    parameter_nodes = isempty(parameters) ? Node[] : Node.(collect(parameters))
+    input_arrays = Any[x for x in xs]
+    input_nodes = [Node(x) for x in xs]
+    parameter_nodes = isempty(parameters) ? Node[] : [Node(p) for p in parameters]
 
     array_to_node = IdDict{Any,Node}()
     node_to_array = IdDict{Node,Any}()
@@ -171,52 +186,57 @@ function snoop(f, parameters::Flux.Params, x...; training = false, kw...)
     end
 
     metadata = TraceMetadata(array_to_node, training)
-    ctx = TraceCtx(metadata = metadata)
+    ctx = TraceCtx(; metadata)
 
     # Perform traced execution on the function.
-    outputs = collect(astuple(Cassette.overdub(ctx, f, inputs...)))
-    @assert all(x -> isa(x, Node), outputs)
+    output_nodes = collect(astuple(Cassette.overdub(ctx, f, input_nodes...)))
+    @assert all(x -> isa(x, Node), output_nodes)
 
     trace = Trace(
-        inputs,
-        outputs,
-        ctx.metadata.implicit_outputs,
-        parameters,
+        input_arrays,
+        input_nodes,
+        output_nodes,
+        get_implicit_outputs(ctx),
+        collect(parameters),
         parameter_nodes,
         array_to_node,
         node_to_array,
-        collect(x),
     )
 
     return (trace, metadata)
 end
 
-function make(backend::Backend, trace; training = false, kw...)
-    (; inputs, parameter_nodes, outputs, implicit_outputs, args) = trace
+function make(backend::Backend, trace::Trace; training = false, kw...)
+    (;
+        input_arrays,
+        input_nodes,
+        output_nodes,
+        implicit_output_nodes,
+        parameter_arrays,
+        parameter_nodes,
+    ) = trace
+    # Sanity check on inputs
+    @assert length(parameter_arrays) == length(parameter_nodes)
+    for (_array, _node) in zip(parameter_arrays, parameter_nodes)
+        @assert size(_array) == size(_node)
+    end
+
     # TODO: Reimplement training
 
     # Create an nGraph Executable
-    allinputs = [inputs; parameter_nodes]
-    alloutputs = [outputs; implicit_outputs]
-
-    ex = compile(
-        backend,
-        allinputs,
-        alloutputs,
-        kw...
-    )
+    allinputs = [input_nodes; parameter_nodes]
+    alloutputs = [output_nodes; implicit_output_nodes]
+    ex = compile(backend, allinputs, alloutputs, kw...)
 
     # Create TensorViews for each of the inputs and outputs
-    input_tensors = Tensor.(Ref(backend), args)
-    output_tensors = Tuple(Tensor.(Ref(backend), outputs))
-    implicit_output_tensors = isempty(implicit_outputs) ? Tensor[] : Tensor.(Ref(backend), implicit_outputs)
+    input_tensors = Tensor[
+        Tensor(backend, x) for x in Iterators.flatten((input_arrays, parameter_arrays))
+    ]
 
-    return CallableFunction(
-        ex,
-        input_tensors,
-        output_tensors,
-        implicit_output_tensors,
-    )
+    output_tensors = ([Tensor(backend, x) for x in output_nodes]...,)
+    implicit_output_tensors = Tensor[Tensor(backend, x) for x in implicit_output_nodes]
+
+    return CallableFunction(ex, input_tensors, output_tensors, implicit_output_tensors)
 end
 
 #####
@@ -231,7 +251,8 @@ struct CallableFunction{O}
 end
 
 allinputs(x::CallableFunction) = x.inputs
-alloutputs(x::CallableFunction) = collect(Iterators.flatten((x.outputs, x.implicit_outputs)))
+alloutputs(x::CallableFunction) =
+    collect(Iterators.flatten((x.outputs, x.implicit_outputs)))
 
 function (ex::CallableFunction)()
     inputs = allinputs(ex)

@@ -85,5 +85,35 @@ end
 include("types.jl")
 include("ops.jl")
 include("tracer/tracer.jl")
+include("tracer/lib.jl")
+
+flip1(x::AbstractArray{T,4}) where {T} = x[size(x, 1):-1:1, :, :, :]
+flip2(x::AbstractArray{T,4}) where {T} = x[:, size(x, 2):-1:1, :, :]
+
+function tryconv()
+    x = randn(Float32, 16, 16, 128, 128)
+    w = randn(Float32, 3, 3, 128, 128)
+    backend = nGraph.Backend{:CPU}()
+
+    f = nGraph.compile(backend, convolution, x, w)
+    z = parent(f())
+
+    ops = [
+        flip1,
+        flip2,
+        (flip1 ∘ flip2)
+    ]
+
+    for (xop, wop) in Iterators.product(ops, ops)
+        xp = xop(x)
+        wp = wop(w)
+
+        y = NNlib.conv(xp, wp; flipped = true)
+        @assert size(y) == size(z)
+        if isapprox(z, y)
+            @show (xp, wp)
+        end
+    end
+end
 
 end # module

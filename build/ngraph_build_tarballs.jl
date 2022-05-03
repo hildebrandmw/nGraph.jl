@@ -9,7 +9,7 @@ version = v"0.0.1"
 sources = [
     GitSource(
         "https://github.com/NervanaSystems/ngraph.git",
-        "81ca5be950bb62b97c5f6f96616c9de5b39ebf45",
+        "d2cd87389c70855f457aebc5cefe37a8aad4510b",
     ),
     GitSource(
         "https://github.com/Kitware/Cmake.git",
@@ -18,6 +18,7 @@ sources = [
 ]
 
 # Bash recipe for building across all platforms
+#-DCMAKE_CXX_FLAGS="-march=skylake-avx512 -mtune=skylake-avx512"
 script = raw"""
 cd $WORKSPACE/srcdir
 cd Cmake
@@ -35,7 +36,6 @@ ${WORKSPACE}/destdir/bin/cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DNGRAPH_TBB_ENABLE=false \
     -DNGRAPH_CPU_CODEGEN_ENABLE=true \
-    -DCMAKE_CXX_FLAGS="-march=skylake-avx512 -mtune=skylake-avx512"
 
 export PATH="${PATH}:$(pwd)/src/resource"
 make -j$(nproc)

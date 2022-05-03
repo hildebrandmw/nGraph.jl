@@ -20,7 +20,7 @@ strides(x) = _reversed(x)
 
 # It is convenient to construct Shape, Strides etc. from Tuples, Numbers, Vectors etc.
 # Here, is the machinery that does the dispatch.
-_expand(N, x) = fill(Int(x), N)
+_expand(N, x::Integer) = fill(Int(x), N)
 
 # Numbers
 shape(N, x::Number) = _expand(N, x)
@@ -110,6 +110,7 @@ ngraph_convert(x::Node) = x.obj
 Base.show(io::IO, x::Node{T,N}) where {T,N} = print(io, "Node{$T,$N} - $(name(x))")
 Base.display(x::Node) = show(stdout, x)
 
+Node(x::Node) = x
 Node{T}(x::NodeCppType) where {T} = Node{T,ndims(x)}(x)
 Node(x::NodeCppType) = Node{eltype(x),ndims(x)}(x)
 
@@ -287,24 +288,4 @@ end
 # Conversions for vectors of Nodes and Tensors
 ngraph_convert(x::Vector{<:Node}) = Lib.CxxWrap.CxxRef.(ngraph_convert.(x))
 ngraph_convert(x::Vector{<:Tensor}) = Lib.CxxWrap.CxxRef.(ngraph_convert.(x))
-
-#####
-##### Extract performance data
-#####
-
-# TODO: Fix This
-# function get_performance(ex::Executable)
-#     # Construct a PerfCounterTranslator
-#     translator = Lib.PerfCounterTranslator(getpointer(ex))
-#
-#     # Create a dictionary of timing results. Iterate through the CounterTranslator to
-#     # construct the dict.
-#     times = Dict{String,Int}()
-#     for i in 1:Lib._length(translator)
-#         name, time = Lib._getindex(translator, i-1)
-#         times[name] = convert(Int, time)
-#     end
-#     return times
-# end
-
 

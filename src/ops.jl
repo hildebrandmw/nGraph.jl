@@ -114,11 +114,7 @@ Base.broadcasted(::typeof(copy), x::Node) = x
 
 parameter(::T) where {T} = @op T 0 op_parameter(T, Int64[])
 function parameter(::Type{T}, dims::NTuple{N,Int}) where {T,N}
-    _shape = shape(dims)
-    GC.@preserve _shape begin
-        node = @op T N op_parameter(T, _shape)
-    end
-    return node
+    return @op T N op_parameter(T, shape(dims))
 end
 
 parameter(x::AbstractArray{T,N}) where {T,N} = parameter(T, size(x))
@@ -217,19 +213,34 @@ end
 ##### Convolution
 #####
 
+function handlepad(::Val{N}, pad::Integer) where {N}
+    padvec = shape(N-2, pad)
+    return padvec, padvec
+end
+
+function handlepad(::Val{N}, pad::NTuple{M}) where {N,M}
+    if M == N
+        return collect(pad[1:2:M]), collect(pad[2:2:M])
+    else
+        error()
+    end
+end
+
 function convolution(
     x::Node{T,N},
     weight::Node{T,N};
     stride = 1,
-    padding = 0,
+    pad = 0,
     dilation = 1,
 ) where {T,N}
+    @show stride, pad, dilation
+    pads_above, pads_below = handlepad(Val(N), pad)
     return @op T N op_convolution(
         x,
         weight,
         strides(N - 2, stride),
-        shape(N - 2, padding),
-        shape(N - 2, padding),
+        pads_above,
+        pads_below,
         shape(N - 2, dilation),
     )
 end
